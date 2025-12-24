@@ -18,6 +18,7 @@ import { formatMicroUsdc, shorten } from "@/lib/format";
 import { randomMicroUsdc } from "@/lib/randomAmount";
 import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
 import { getBestScore, submitScore, waitForReceipt } from "@/lib/onchain";
+import { sendUsdcTransfer } from "@/lib/usdcTransfer";
 import { useSwipe } from "@/lib/useSwipe";
 
 type Mode = "classic" | "pay";
@@ -52,6 +53,9 @@ export default function AppShell() {
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Farcaster Mini App context (also used by Base App mini apps)
+  const [clientFid, setClientFid] = useState<number | null>(null);
+
   const [toast, setToast] = useState<ToastState>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
@@ -59,18 +63,47 @@ export default function AppShell() {
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
   const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
+  const payRecipientAddress = process.env.NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS; // used for non-BasePay flows
   const testnet = (process.env.NEXT_PUBLIC_TESTNET ?? "false") === "true";
+
+  // Base App client fid (per Farcaster mini app compatibility docs)
+  const isBaseApp = clientFid === 309857;
 
   // SDK ready (Farcaster mini apps show splash until ready())
   useEffect(() => {
     (async () => {
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
-        await sdk.actions.ready();
+        // Also disables some native gestures that can conflict with swipe games.
+        await (sdk as any).actions.ready({ disableNativeGestures: true });
+
+        // If we are in a Mini App client, capture clientFid for routing behavior.
+        const fid = (sdk as any)?.context?.client?.clientFid;
+        if (typeof fid === "number") setClientFid(fid);
       } catch {
         // Not in a Farcaster mini app; ok.
       }
     })();
+  }, []);
+
+  // Hard-disable zoom gestures inside mobile webviews.
+  // (Some clients ignore viewport user-scalable=no unless we also block gesture events.)
+  useEffect(() => {
+    const prevent = (e: Event) => e.preventDefault();
+    const onWheel = (e: WheelEvent) => {
+      if ((e as any).ctrlKey) e.preventDefault();
+    };
+
+    document.addEventListener("gesturestart", prevent, { passive: false } as any);
+    document.addEventListener("gesturechange", prevent, { passive: false } as any);
+    document.addEventListener("gestureend", prevent, { passive: false } as any);
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      document.removeEventListener("gesturestart", prevent as any);
+      document.removeEventListener("gesturechange", prevent as any);
+      document.removeEventListener("gestureend", prevent as any);
+      window.removeEventListener("wheel", onWheel as any);
+    };
   }, []);
 
   // Theme persistence only
@@ -173,52 +206,6 @@ export default function AppShell() {
     [board, score, gameOver, busy, checkGameOver]
   );
 
-  const startPayFlow = useCallback(
-    (dir: Direction) => {
-      if (gameOver || busy) return;
-      if (!payRecipient) {
-        setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT" });
-        setTimeout(() => setToast(null), 2400);
-        return;
-      }
-      const r = move(board, dir);
-      if (!r.moved) return;
-
-      const { micro, amount } = randomMicroUsdc();
-      setPending({ dir, afterMoveBoard: r.board, scoreGain: r.scoreGain, micro, amount });
-      setPayOpen(true);
-    },
-    [board, gameOver, busy, payRecipient]
-  );
-
-  const onDirection = useCallback(
-    (dir: Direction) => {
-      if (mode === "classic") applyMoveClassic(dir);
-      else startPayFlow(dir);
-    },
-    [mode, applyMoveClassic, startPayFlow]
-  );
-
-  useSwipe({ onDirection, enabled: !busy, element: boardRef });
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const map: Record<string, Direction> = {
-        ArrowUp: "up",
-        ArrowDown: "down",
-        ArrowLeft: "left",
-        ArrowRight: "right",
-      };
-      const d = map[e.key];
-      if (d) {
-        e.preventDefault();
-        onDirection(d);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onDirection]);
-
   const saveScoreAnytime = useCallback(async () => {
     if (!contract) {
       setToast({ message: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS" });
@@ -257,59 +244,171 @@ export default function AppShell() {
     }
   }, [contract, chainId, score, address]);
 
-  const confirmPendingPayment = useCallback(async () => {
-    if (!pending || !payRecipient) {
-      setToast({ message: "Missing pay configuration." });
-      setTimeout(() => setToast(null), 2400);
-      return;
-    }
-    if (busy) return;
-
-    try {
-      setBusy(true);
-      setToast({ message: "Opening payment…" });
-
-      const payment = await pay({ amount: pending.amount, to: payRecipient, testnet });
-
-      setToast({ message: "Payment sent. Waiting confirmation…" });
-
-      const startedAt = Date.now();
-      // Poll for up to 60s. Base Pay usually confirms quickly, but we keep it sane.
-      while (Date.now() - startedAt < 60_000) {
-        const res = await getPaymentStatus({ id: payment.id, testnet });
-        if (res.status === "completed") {
-          const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
-          setGame((g) => ({ board: afterSpawn, score: g.score + pending.scoreGain }));
-          setMovesPaid((m) => m + 1);
-          setSpentMicro((s) => s + pending.micro);
-
-          setPayOpen(false);
-          setPending(null);
-          setToast({ message: "Move confirmed ✅" });
-          setTimeout(() => setToast(null), 1200);
-
-          checkGameOver(afterSpawn);
-          return;
-        }
-        if (res.status === "failed") {
-          setToast({ message: "Payment failed" });
-          setTimeout(() => setToast(null), 2400);
-          return;
-        }
-        // pending / not_found: wait and try again
-        await new Promise((r) => setTimeout(r, 1000));
+  const confirmPayment = useCallback(
+    async (pm?: PendingMove) => {
+      const pnd = pm ?? pending;
+      if (!pnd || !payRecipient) {
+        setToast({ message: "Missing pay configuration." });
+        setTimeout(() => setToast(null), 2400);
+        return;
       }
+      if (busy) return;
 
-      setToast({ message: "Payment still pending. Try again in a moment." });
-      setTimeout(() => setToast(null), 3000);
-    } catch (e: any) {
-      // No desync: do not apply move
-      setToast({ message: e?.message ?? "Payment cancelled/failed" });
-      setTimeout(() => setToast(null), 3000);
-    } finally {
-      setBusy(false);
-    }
-  }, [pending, payRecipient, testnet, busy, checkGameOver]);
+      try {
+        setBusy(true);
+        setToast({ message: "Opening payment…" });
+
+        const isMiniAppClient = clientFid !== null;
+
+        // In Base App: use Base Pay (one-tap USDC, gas handled by Base).
+        // In other Farcaster clients (e.g., Warpcast): Base Pay may open an external browser,
+        // so we fall back to a normal ERC-20 transfer via the Mini App's EIP-1193 provider.
+        if (!isMiniAppClient || isBaseApp) {
+          const payment = await pay({ amount: pnd.amount, to: payRecipient, testnet });
+
+          setToast({ message: "Payment sent. Waiting confirmation…" });
+
+          const startedAt = Date.now();
+          while (Date.now() - startedAt < 60_000) {
+            const res = await getPaymentStatus({ id: payment.id, testnet });
+            if (res.status === "completed") {
+              const afterSpawn = spawnRandomTile(pnd.afterMoveBoard);
+              setGame((g) => ({ board: afterSpawn, score: g.score + pnd.scoreGain }));
+              setMovesPaid((m) => m + 1);
+              setSpentMicro((s) => s + pnd.micro);
+
+              setPayOpen(false);
+              setPending(null);
+              setToast({ message: "Move confirmed ✅" });
+              setTimeout(() => setToast(null), 1200);
+
+              checkGameOver(afterSpawn);
+              return;
+            }
+            if (res.status === "failed") {
+              setToast({ message: "Payment failed" });
+              setTimeout(() => setToast(null), 2400);
+              return;
+            }
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+
+          setToast({ message: "Payment still pending. Try again in a moment." });
+          setTimeout(() => setToast(null), 3000);
+          return;
+        }
+
+        // Farcaster client fallback: normal onchain transfer (user signs in-wallet).
+        const p = await getEvmProvider();
+        if (!p) throw new Error("No wallet provider found in this client.");
+        setProviderReady(true);
+
+        await ensureChain(p, chainId);
+        const acct = (address ?? (await getAccount(p)) ?? (await requestAccount(p))) as `0x${string}`;
+        setAddress(acct);
+
+        const toAddress = (() => {
+          const isHex = (v?: string) => /^0x[a-fA-F0-9]{40}$/.test(v ?? "");
+          if (isHex(payRecipientAddress)) return payRecipientAddress as `0x${string}`;
+          if (isHex(payRecipient)) return payRecipient as `0x${string}`;
+          throw new Error(
+            "For Farcaster payments, set NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS to a 0x address (Base Pay supports basenames, raw transfers do not)."
+          );
+        })();
+
+        setToast({ message: "Confirm payment in wallet…" });
+        const txHash = await sendUsdcTransfer({
+          provider: p,
+          from: acct,
+          to: toAddress,
+          // USDC has 6 decimals; micro USDC = 1..5 units.
+          amountUnits: BigInt(pnd.micro),
+        });
+
+        await waitForReceipt({ provider: p, txHash });
+
+        const afterSpawn = spawnRandomTile(pnd.afterMoveBoard);
+        setGame((g) => ({ board: afterSpawn, score: g.score + pnd.scoreGain }));
+        setMovesPaid((m) => m + 1);
+        setSpentMicro((s) => s + pnd.micro);
+
+        setPayOpen(false);
+        setPending(null);
+        setToast({ message: "Move confirmed ✅" });
+        setTimeout(() => setToast(null), 1200);
+
+        checkGameOver(afterSpawn);
+      } catch (e: any) {
+        // No desync: do not apply move
+        setToast({ message: e?.message ?? "Payment cancelled/failed" });
+        setTimeout(() => setToast(null), 3000);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      pending,
+      payRecipient,
+      payRecipientAddress,
+      testnet,
+      busy,
+      checkGameOver,
+      clientFid,
+      isBaseApp,
+      chainId,
+      address,
+    ]
+  );
+
+  const startPayFlow = useCallback(
+    (dir: Direction) => {
+      if (gameOver || busy) return;
+      if (!payRecipient) {
+        setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT" });
+        setTimeout(() => setToast(null), 2400);
+        return;
+      }
+      const r = move(board, dir);
+      if (!r.moved) return;
+
+      const { micro, amount } = randomMicroUsdc();
+      const pm: PendingMove = { dir, afterMoveBoard: r.board, scoreGain: r.scoreGain, micro, amount };
+
+      // Show the sheet (so the user can see amount) but auto-start payment.
+      setPending(pm);
+      setPayOpen(true);
+      void confirmPayment(pm);
+    },
+    [board, gameOver, busy, payRecipient, confirmPayment]
+  );
+
+  const onDirection = useCallback(
+    (dir: Direction) => {
+      if (mode === "classic") applyMoveClassic(dir);
+      else startPayFlow(dir);
+    },
+    [mode, applyMoveClassic, startPayFlow]
+  );
+
+  useSwipe({ onDirection, enabled: !busy, element: boardRef });
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const map: Record<string, Direction> = {
+        ArrowUp: "up",
+        ArrowDown: "down",
+        ArrowLeft: "left",
+        ArrowRight: "right",
+      };
+      const d = map[e.key];
+      if (d) {
+        e.preventDefault();
+        onDirection(d);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onDirection]);
 
   const cancelPending = useCallback(() => {
     setPayOpen(false);
@@ -448,7 +547,7 @@ export default function AppShell() {
         ) : null}
 
         <div className="mt-6 text-center text-xs text-[var(--muted)]">
-          Swipe or use arrows. In Pay mode, the move commits only after a successful Base Pay payment.
+          Swipe or use arrows. In Pay mode, the move commits only after a successful payment confirmation.
         </div>
       </div>
 
@@ -492,25 +591,31 @@ export default function AppShell() {
 
         <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
           <div className="text-xs font-semibold opacity-70">AMOUNT</div>
-          <div className="text-2xl font-extrabold">
-            {pending ? pending.amount : "—"} USDC
-          </div>
-          <div className="mt-1 text-xs text-[var(--muted)]">
-            Recipient: {payRecipient ? payRecipient : "—"}
-          </div>
-        </div>
+          <div className="text-2xl font-extrabold">{pending ? pending.amount : "—"} USDC</div>
+          <div className="mt-1 text-xs text-[var(--muted)]">Recipient: {payRecipient ? payRecipient : "—"}</div>
 
-        <div className="mt-4">
-          {payRecipient ? (
-            <div className={busy ? "pointer-events-none opacity-70" : ""}>
-              <BasePayButton
-                colorScheme={theme === "amoled" || theme === "neon" ? "dark" : "light"}
-                onClick={confirmPendingPayment}
-              />
-            </div>
-          ) : (
-            <div className="text-xs text-red-600">Missing NEXT_PUBLIC_PAY_RECIPIENT</div>
-          )}
+          <div className="mt-4">
+            {busy ? <div className="mb-2 text-xs text-[var(--muted)]">Opening payment…</div> : null}
+
+            {payRecipient ? (
+              <div className={busy ? "pointer-events-none opacity-70" : ""}>
+                {clientFid !== null && !isBaseApp ? (
+                  <Button onClick={() => confirmPayment()} className="w-full">
+                    Confirm payment
+                  </Button>
+                ) : (
+                  <div className="basePayWrap">
+                    <BasePayButton
+                      colorScheme={theme === "amoled" || theme === "neon" ? "dark" : "light"}
+                      onClick={() => confirmPayment()}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-red-600">Missing NEXT_PUBLIC_PAY_RECIPIENT</div>
+            )}
+          </div>
         </div>
 
         <div className="mt-3 flex justify-end">
