@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BasePayButton } from "@base-org/account-ui/react";
 import { pay, getPaymentStatus } from "@base-org/account";
 import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
 
@@ -16,6 +17,7 @@ import type { ThemeId } from "@/lib/themes";
 import { formatMicroUsdc, shorten } from "@/lib/format";
 import { randomMicroUsdc } from "@/lib/randomAmount";
 import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
+import { sendUsdcTransfer } from "@/lib/usdcTransfer";
 import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
 
@@ -29,11 +31,6 @@ type PendingMove = {
   amount: string;
 };
 
-function isUserRejected(e: any) {
-  const msg = String(e?.message ?? "").toLowerCase();
-  return e?.code === 4001 || msg.includes("user rejected") || msg.includes("rejected") || msg.includes("cancel");
-}
-
 export default function AppShell() {
   // Theme persists; mode does NOT (default classic every open).
   const [theme, setTheme] = useState<ThemeId>("classic");
@@ -45,6 +42,7 @@ export default function AppShell() {
 
   const [themeOpen, setThemeOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
 
   const [pending, setPending] = useState<PendingMove | null>(null);
 
@@ -53,14 +51,40 @@ export default function AppShell() {
 
   const [providerReady, setProviderReady] = useState(false);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
+  // Host detection: Base App vs other Farcaster clients.
+  // Base Pay works natively only in the Base App host. Other Farcaster clients should use wallet txs.
+  const [clientHost, setClientHost] = useState<"base" | "farcaster" | "web">("web");
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { sdk } = await import("@farcaster/miniapp-sdk");
+        const inMini = await sdk.isInMiniApp();
+        if (!inMini) return;
+
+        const ctx = await sdk.context;
+        const fid = Number((ctx as any)?.client?.clientFid ?? 0);
+
+        // Base App client fid is 309857.
+        if (!mounted) return;
+        if (fid === 309857) setClientHost("base");
+        else setClientHost("farcaster");
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
-  // Prevent rapid multi-swipes from stacking multiple payments before React state updates.
-  const payLockRef = useRef(false);
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
@@ -95,6 +119,7 @@ export default function AppShell() {
     setGameOver(false);
     setGameOverOpen(false);
     setSaveOpen(false);
+    setPayOpen(false);
     setPending(null);
     setMovesPaid(0);
     setSpentMicro(0);
@@ -180,73 +205,27 @@ export default function AppShell() {
   );
 
   const startPayFlow = useCallback(
-    async (dir: Direction) => {
-      if (gameOver || busy || payLockRef.current) return;
+    (dir: Direction) => {
+      if (gameOver || busy) return;
       if (!payRecipient) {
         setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT" });
         setTimeout(() => setToast(null), 2400);
         return;
       }
-
       const r = move(board, dir);
       if (!r.moved) return;
 
       const { micro, amount } = randomMicroUsdc();
       setPending({ dir, afterMoveBoard: r.board, scoreGain: r.scoreGain, micro, amount });
-
-      try {
-        payLockRef.current = true;
-        setBusy(true);
-        setToast({ message: `Opening payment… (${amount} USDC)` });
-
-        // This opens the Base Pay confirmation sheet immediately.
-        // No intermediate "Base Pay" button click.
-        const payment = await pay({ amount, to: payRecipient, testnet });
-
-        setToast({ message: "Payment sent. Waiting confirmation…" });
-
-        const startedAt = Date.now();
-        while (Date.now() - startedAt < 60_000) {
-          const res = await getPaymentStatus({ id: payment.id, testnet });
-          if (res.status === "completed") {
-            const afterSpawn = spawnRandomTile(r.board);
-            setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
-            setMovesPaid((m) => m + 1);
-            setSpentMicro((s) => s + micro);
-
-            setToast({ message: "Move confirmed ✅" });
-            setTimeout(() => setToast(null), 1200);
-
-            checkGameOver(afterSpawn);
-            return;
-          }
-          if (res.status === "failed") {
-            setToast({ message: "Payment failed" });
-            setTimeout(() => setToast(null), 2400);
-            return;
-          }
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-
-        setToast({ message: "Payment still pending. Try again in a moment." });
-        setTimeout(() => setToast(null), 3000);
-      } catch (e: any) {
-        // No desync: do NOT apply move
-        setToast({ message: isUserRejected(e) ? "User rejected tx" : e?.message ?? "Payment cancelled/failed" });
-        setTimeout(() => setToast(null), 2500);
-      } finally {
-        setBusy(false);
-        setPending(null);
-        payLockRef.current = false;
-      }
+      setPayOpen(true);
     },
-    [board, gameOver, busy, payRecipient, testnet, checkGameOver]
+    [board, gameOver, busy, payRecipient]
   );
 
   const onDirection = useCallback(
     (dir: Direction) => {
       if (mode === "classic") applyMoveClassic(dir);
-      else void startPayFlow(dir);
+      else startPayFlow(dir);
     },
     [mode, applyMoveClassic, startPayFlow]
   );
@@ -364,6 +343,112 @@ export default function AppShell() {
     }
   }, [contract, chainId, score, address]);
 
+  const confirmPendingPayment = useCallback(async () => {
+    if (!pending || !payRecipient) {
+      setToast({ message: "Missing pay configuration." });
+      setTimeout(() => setToast(null), 2400);
+      return;
+    }
+    if (busy) return;
+
+    try {
+      setBusy(true);
+
+      // Base App: use Base Pay (native). Other Farcaster clients: use a wallet tx (native confirm sheet).
+      if (clientHost === "base") {
+        setToast({ message: "Opening payment…" });
+
+        const payment = await pay({ amount: pending.amount, to: payRecipient, testnet });
+
+        setToast({ message: "Payment sent. Waiting confirmation…" });
+
+        const startedAt = Date.now();
+        // Poll for up to 60s. Base Pay usually confirms quickly, but we keep it sane.
+        while (Date.now() - startedAt < 60_000) {
+          const status = await getPaymentStatus({ id: payment.id, testnet });
+          if (status.status === "completed") {
+            // Only now we commit the move.
+            const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
+            setBoard(afterSpawn);
+            setScore((s) => s + pending.scoreGain);
+            setMovesPaid((m) => m + 1);
+            setSpentMicro((m) => m + pending.micro);
+            setPending(null);
+            setPayOpen(false);
+            checkGameOver(afterSpawn);
+            setToast({ message: "Payment confirmed ✅" });
+            setTimeout(() => setToast(null), 1200);
+            return;
+          }
+          if (status.status === "failed") {
+            throw new Error("Payment failed");
+          }
+          await new Promise((r) => setTimeout(r, 1200));
+        }
+
+        setToast({ message: "Payment still pending. Try again in a moment." });
+        setTimeout(() => setToast(null), 2500);
+        return;
+      }
+
+      // Farcaster (or web): send a USDC transfer tx via the embedded wallet provider.
+      setToast({ message: "Opening wallet…" });
+
+      const p = await getEvmProvider();
+      if (!p) throw new Error("No wallet provider found in this client.");
+      setProviderReady(true);
+
+      await ensureChain(p, chainId);
+
+      const acct = address ?? (await requestAccount(p));
+      setAddress(acct);
+
+      const txHash = await sendUsdcTransfer({
+        provider: p,
+        from: acct,
+        to: payRecipient,
+        amount: pending.amount,
+        chainId,
+      });
+
+      setToast({ message: "Transaction sent. Waiting confirmation…" });
+
+      const receipt = await waitForReceipt({ provider: p, txHash, timeoutMs: 75_000 });
+      const ok = receipt?.status === "0x1" || receipt?.status === 1 || receipt?.status === true;
+      if (!ok) throw new Error("Transaction failed");
+
+      // Commit the move only after receipt confirms.
+      const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
+      setBoard(afterSpawn);
+      setScore((s) => s + pending.scoreGain);
+      setMovesPaid((m) => m + 1);
+      setSpentMicro((m) => m + pending.micro);
+      setPending(null);
+      setPayOpen(false);
+      checkGameOver(afterSpawn);
+
+      setToast({ message: "Payment confirmed ✅" });
+      setTimeout(() => setToast(null), 1200);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e ?? "Payment failed");
+
+      // Common wallet rejection signal.
+      const rejected =
+        e?.code === 4001 || /rejected|user denied|User rejected/i.test(msg);
+
+      setToast({ message: rejected ? "User rejected transaction" : msg });
+      setTimeout(() => setToast(null), 2600);
+    } finally {
+      setBusy(false);
+    }
+  }, [pending, payRecipient, testnet, busy, chainId, address, clientHost, checkGameOver, theme]); 
+
+
+  const cancelPending = useCallback(() => {
+    setPayOpen(false);
+    setPending(null);
+  }, []);
+
   const modeLabel = mode === "classic" ? "Classic" : "Pay-per-move";
 
   return (
@@ -468,7 +553,7 @@ export default function AppShell() {
         </div>
 
         <div className="mt-4" ref={boardRef}>
-          <Board board={board} theme={theme} isLocked={busy} />
+          <Board board={board} theme={theme} isLocked={busy || Boolean(pending)} />
         </div>
 
         <div className="mt-4 grid grid-cols-4 gap-2">
@@ -556,6 +641,46 @@ export default function AppShell() {
         ) : null}
       </Sheet>
 
+      <Sheet open={payOpen} title="Confirm move" onClose={cancelPending}>
+        <div className="text-sm text-[var(--muted)]">
+          This move requires a micro USDC payment. Amount is randomized to avoid identical-looking spam.
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
+          <div className="text-xs font-semibold opacity-70">AMOUNT</div>
+          <div className="text-2xl font-extrabold">
+            {pending ? pending.amount : "—"} USDC
+          </div>
+          <div className="mt-1 text-xs text-[var(--muted)]">
+            Recipient: {payRecipient ? payRecipient : "—"}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          {payRecipient ? (
+            <div className={busy ? "pointer-events-none opacity-70" : ""}>
+              {clientHost === "base" ? (
+                <BasePayButton
+                  colorScheme={theme === "amoled" || theme === "neon" ? "dark" : "light"}
+                  onClick={confirmPendingPayment}
+                />
+              ) : (
+                <Button className="w-full" size="lg" onClick={confirmPendingPayment} disabled={busy}>
+                  Confirm in wallet
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-red-600">Missing NEXT_PUBLIC_PAY_RECIPIENT</div>
+          )}
+        </div>
+
+        <div className="mt-3 flex justify-end">
+          <Button variant="outline" onClick={cancelPending}>
+            Cancel (don&apos;t move)
+          </Button>
+        </div>
+      </Sheet>
     </div>
   );
 }
