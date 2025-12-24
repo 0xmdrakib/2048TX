@@ -17,7 +17,7 @@ import type { ThemeId } from "@/lib/themes";
 import { formatMicroUsdc, shorten } from "@/lib/format";
 import { randomMicroUsdc } from "@/lib/randomAmount";
 import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
-import { getBestScore, submitScore, waitForReceipt } from "@/lib/onchain";
+import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
 
 type Mode = "classic" | "pay";
@@ -242,30 +242,68 @@ export default function AppShell() {
       const acct = (address ?? (await getAccount(p)) ?? (await requestAccount(p))) as `0x${string}`;
       setAddress(acct);
 
+      // Capture the current submissions count so we can confirm success even if
+      // the embedded provider is flaky about receipts.
+      let prevSubmissions: number | null = null;
+      try {
+        prevSubmissions = await getSubmissions({ provider: p, contract, address: acct });
+      } catch {
+        // non-fatal
+      }
+
       const txHash = await submitScore({ provider: p, contract, from: acct, score });
       setToast({ message: "Saving score onchain…" });
 
-      const receipt = await waitForReceipt({ provider: p, txHash, timeoutMs: 120_000 });
-      // If the tx reverted, surface it clearly.
-      const status = (receipt as any)?.status;
-      if (status === "0x0" || status === 0 || status === false) {
-        throw new Error("Transaction reverted. Your score was not saved.");
+      const receiptPromise = (async () => {
+        const receipt = await waitForReceipt({ provider: p, txHash, timeoutMs: 120_000 });
+        const status = (receipt as any)?.status;
+        if (status === "0x0" || status === 0 || status === false) {
+          throw new Error("Transaction reverted. Your score was not saved.");
+        }
+        return receipt;
+      })();
+
+      const racers: Promise<any>[] = [receiptPromise];
+
+      // Fallback confirmation: if we can observe submissions incrementing, we know
+      // the transaction was mined (this works for both "best" and non-best scores).
+      if (prevSubmissions != null) {
+        const submissionsConfirmPromise = (async () => {
+          const started = Date.now();
+          while (Date.now() - started < 120_000) {
+            try {
+              const subsNow = await getSubmissions({ provider: p, contract, address: acct });
+              if (subsNow > prevSubmissions) return subsNow;
+            } catch {
+              // ignore and retry
+            }
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+          throw new Error("Timed out confirming score save.");
+        })();
+        racers.push(submissionsConfirmPromise);
       }
 
-      // Best updates only if this score is higher (contract rule).
-      // But every submission should still count as "saved".
-      try {
-        const best = await getBestScore({ provider: p, contract, address: acct });
-        setOnchainBest(best);
-      } catch {
-        // Non-fatal: the tx is saved even if we can't refresh best right now.
-      }
+      // Whichever confirms first: receipt OR onchain state change.
+      await Promise.race(racers);
+
+      // Close the sheet immediately after the tx is confirmed.
+      // Do NOT block UX on a follow-up read, because some embedded providers
+      // (especially in the Base app) can hang on eth_call even after a successful tx.
+      setSaveOpen(false);
 
       setToast({ message: "Score saved ✅" });
       setTimeout(() => setToast(null), 1400);
 
-      // Close the sheet on success.
-      setSaveOpen(false);
+      // Refresh best in the background (non-blocking).
+      void (async () => {
+        try {
+          const best = await getBestScore({ provider: p, contract, address: acct });
+          setOnchainBest(best);
+        } catch {
+          // Non-fatal: the tx is saved even if we can't refresh best right now.
+        }
+      })();
     } catch (e: any) {
       setToast({ message: e?.message ?? "Save failed" });
       setTimeout(() => setToast(null), 3000);
