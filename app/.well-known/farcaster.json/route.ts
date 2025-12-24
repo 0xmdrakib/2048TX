@@ -61,7 +61,7 @@ export async function GET() {
 
       // Social embeds (optional but recommended)
       ogTitle: "2048 TX",
-      ogDescription: "Classic 2048 + optional onchain score + pay-per-move.",
+      ogDescription: "Classic 2048 plus optional onchain score plus pay per move.",
       ogImageUrl: `${appUrl}/hero.png`,
 
       // Keep hidden during testing
