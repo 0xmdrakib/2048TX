@@ -57,6 +57,10 @@ body {
   touch-action: manipulation;
 }
 
+/* Make BasePayButton fit cleanly inside our cards/sheets */
+.basePayWrap { width: 100%; }
+.basePayWrap button { width: 100% !important; display: block; }
+
 * { box-sizing: border-box; }
 
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
