@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 // ---------------------------------------------------------------------------
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://2048tx.vercel.app").replace(/\/$/, "");
-const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad876c90810df";
+const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad87c690810df";
 
 const EMBED = {
   version: "next",
@@ -46,6 +46,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Prevent pinch/double-tap zoom inside in-app webviews */}
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+        />
+
         {/* Base Build domain verification */}
         <meta name="base:app_id" content={BASE_APP_ID} />
 
