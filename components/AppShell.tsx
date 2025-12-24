@@ -37,6 +37,7 @@ function isUserRejected(e: any) {
 export default function AppShell() {
   // Theme persists; mode does NOT (default classic every open).
   const [theme, setTheme] = useState<ThemeId>("classic");
+  const [clientFid, setClientFid] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>("classic");
 
   const [{ board, score }, setGame] = useState(() => newGame());
@@ -64,16 +65,7 @@ export default function AppShell() {
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
-  const as0xAddress = (v?: string | null): `0x${string}` | null => {
-  if (!v) return null;
-  const s = v.trim();
-  if (!/^0x[a-fA-F0-9]{40}$/.test(s)) return null;
-  return s as `0x${string}`;
-};
-
-const payRecipient =
-  as0xAddress(process.env.NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS) ??
-  as0xAddress(process.env.NEXT_PUBLIC_PAY_RECIPIENT);
+  const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
   const testnet = (process.env.NEXT_PUBLIC_TESTNET ?? "false") === "true";
 
   // SDK ready (Farcaster mini apps show splash until ready())
@@ -82,6 +74,18 @@ const payRecipient =
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
         await sdk.actions.ready();
+        try {
+          const fid = (sdk as any)?.context?.client?.clientFid;
+          if (typeof fid === "number") setClientFid(fid);
+        } catch {
+          // ignore
+        }
+        try {
+          const fid = (sdk as any)?.context?.client?.clientFid;
+          if (typeof fid === "number") setClientFid(fid);
+        } catch {
+          // ignore
+        }
       } catch {
         // Not in a Farcaster mini app; ok.
       }
@@ -192,7 +196,7 @@ const payRecipient =
     async (dir: Direction) => {
       if (gameOver || busy || payLockRef.current) return;
       if (!payRecipient) {
-        setToast({ message: "Missing payment recipient address env var" });
+        setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT" });
         setTimeout(() => setToast(null), 2400);
         return;
       }
@@ -208,38 +212,92 @@ const payRecipient =
         setBusy(true);
         setToast({ message: `Opening payment… (${amount} USDC)` });
 
-        // This opens the Base Pay confirmation sheet immediately.
-        // No intermediate "Base Pay" button click.
-        const payment = await pay({ amount, to: payRecipient, testnet });
+// Decide payment UX by host:
+// - Base App: Base Pay (in-app, gas sponsored)
+// - Farcaster clients (Warpcast, etc.): Farcaster sendToken (native tx sheet, no web redirect)
+let sdkMod: any = null;
+let inMiniApp = false;
+try {
+  sdkMod = await import("@farcaster/miniapp-sdk");
+  inMiniApp = !!sdkMod?.sdk?.isInMiniApp?.();
+} catch {
+  // running in browser/non-miniapp
+}
 
-        setToast({ message: "Payment sent. Waiting confirmation…" });
+const fidNow = (sdkMod as any)?.sdk?.context?.client?.clientFid;
+        const fid = typeof clientFid === "number" ? clientFid : (typeof fidNow === "number" ? fidNow : null);
+        const isBaseApp = !inMiniApp || fid === BASE_APP_CLIENT_FID;
 
-        const startedAt = Date.now();
-        while (Date.now() - startedAt < 60_000) {
-          const res = await getPaymentStatus({ id: payment.id, testnet });
-          if (res.status === "completed") {
-            const afterSpawn = spawnRandomTile(r.board);
-            setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
-            setMovesPaid((m) => m + 1);
-            setSpentMicro((s) => s + micro);
+if (isBaseApp) {
+  const payment = await pay({
+    amount,
+    to: payRecipient,
+    testnet,
+  });
 
-            setToast({ message: "Move confirmed ✅" });
-            setTimeout(() => setToast(null), 1200);
+  setToast({ message: "Payment sent. Waiting confirmation…" });
 
-            checkGameOver(afterSpawn);
-            return;
-          }
-          if (res.status === "failed") {
-            setToast({ message: "Payment failed" });
-            setTimeout(() => setToast(null), 2400);
-            return;
-          }
-          await new Promise((r) => setTimeout(r, 1000));
-        }
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 60_000) {
+    const res = await getPaymentStatus({ id: payment.id, testnet });
+    if (res.status === "completed") {
+      const afterSpawn = spawnRandomTile(afterMoveBoard);
+      setBoard(afterSpawn);
+      setScore((s) => s + scoreGain);
+      setMovesPaid((m) => m + 1);
+      setSpentMicro((s) => s + micro);
 
-        setToast({ message: "Payment still pending. Try again in a moment." });
-        setTimeout(() => setToast(null), 3000);
-      } catch (e: any) {
+      setToast({ message: "Move confirmed ✅" });
+      setTimeout(() => setToast(null), 1200);
+
+      checkGameOver(afterSpawn);
+      return;
+    }
+
+    if (res.status === "failed" || res.status === "canceled") {
+      throw new Error(res.error?.message ?? "Payment failed");
+    }
+
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  throw new Error("Payment timeout. Try again.");
+}
+
+// Farcaster: sendToken opens the native tx sheet in Warpcast / Farcaster clients.
+if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
+  // Base Pay can accept ENS, but Farcaster sendToken needs a raw address.
+  throw new Error("Pay recipient must be a 0x... address for Farcaster payments.");
+}
+
+const { sdk } = sdkMod;
+const token = `eip155:${chainId}/erc20:${USDC_BASE_MAINNET}`;
+const sendRes = await sdk.actions.sendToken({
+  token,
+  amount: String(micro), // smallest units (USDC 6 decimals)
+  recipientAddress: payRecipient as `0x${string}`,
+});
+
+if (!sendRes?.success) {
+  const reason = (sendRes as any)?.reason ?? "unknown";
+  if (reason === "rejected_by_user") throw new Error("User rejected");
+  throw new Error(`Payment failed: ${reason}`);
+}
+
+// Success → commit move
+const afterSpawn = spawnRandomTile(afterMoveBoard);
+setBoard(afterSpawn);
+setScore((s) => s + scoreGain);
+setMovesPaid((m) => m + 1);
+setSpentMicro((s) => s + micro);
+
+setToast({ message: "Move confirmed ✅" });
+setTimeout(() => setToast(null), 1200);
+
+checkGameOver(afterSpawn);
+return;
+
+} catch (e: any) {
         // No desync: do NOT apply move
         setToast({ message: isUserRejected(e) ? "User rejected tx" : e?.message ?? "Payment cancelled/failed" });
         setTimeout(() => setToast(null), 2500);
@@ -249,7 +307,7 @@ const payRecipient =
         payLockRef.current = false;
       }
     },
-    [board, gameOver, busy, payRecipient, testnet, checkGameOver]
+    [board, gameOver, busy, payRecipient, testnet, clientFid, checkGameOver]
   );
 
   const onDirection = useCallback(
