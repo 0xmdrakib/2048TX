@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #faf8f0;
+  --text: #2b2621;
+  --muted: rgba(43,38,33,0.65);
+  --card: rgba(255,255,255,0.65);
+  --cardBorder: rgba(0,0,0,0.08);
+  --board: #b9a58d;
+  --cell: rgba(255,255,255,0.30);
+  --chip: rgba(0,0,0,0.06);
+}
+
+[data-theme="neon"] {
+  --bg: #1a0b2e;
+  --text: #f5f5ff;
+  --muted: rgba(245,245,255,0.65);
+  --card: rgba(255,255,255,0.06);
+  --cardBorder: rgba(255,255,255,0.14);
+  --board: rgba(0,0,0,0.55);
+  --cell: rgba(255,255,255,0.08);
+  --chip: rgba(255,255,255,0.10);
+}
+
+[data-theme="pastel"] {
+  --bg: #fbf7ff;
+  --text: #2a1f3b;
+  --muted: rgba(42,31,59,0.65);
+  --card: rgba(255,255,255,0.75);
+  --cardBorder: rgba(42,31,59,0.10);
+  --board: #e7d8ff;
+  --cell: rgba(42,31,59,0.08);
+  --chip: rgba(42,31,59,0.08);
+}
+
+[data-theme="amoled"] {
+  --bg: #07070a;
+  --text: #f6f6f7;
+  --muted: rgba(246,246,247,0.62);
+  --card: rgba(255,255,255,0.04);
+  --cardBorder: rgba(255,255,255,0.14);
+  --board: rgba(255,255,255,0.08);
+  --cell: rgba(255,255,255,0.05);
+  --chip: rgba(255,255,255,0.10);
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+* { box-sizing: border-box; }
+
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
