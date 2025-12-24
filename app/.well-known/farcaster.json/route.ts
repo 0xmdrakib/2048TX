@@ -23,9 +23,9 @@ export async function GET() {
 
   // Prefer env-driven accountAssociation so you can paste into Vercel env vars
   // after generating via Base Build / Warpcast manifest tools.
-  const header = process.env.FARCASTER_HEADER ?? "REPLACE_ME";
-  const payload = process.env.FARCASTER_PAYLOAD ?? "REPLACE_ME";
-  const signature = process.env.FARCASTER_SIGNATURE ?? "REPLACE_ME";
+  const header = process.env.FARCASTER_HEADER ?? "eyJmaWQiOjUzMjc2NCwidHlwZSI6ImF1dGgiLCJrZXkiOiIweEFBM0U0ZDM1MkFmMGYwMUQ4N2YzYTRGNjVENDI4ODJBM2MxNDliYzYifQ";
+  const payload = process.env.FARCASTER_PAYLOAD ?? "eyJkb21haW4iOiIyMDQ4dHgudmVyY2VsLmFwcCJ9";
+  const signature = process.env.FARCASTER_SIGNATURE ?? "pI/ERRV3QYgJKLhY9zkvPAO33VBDK49GxcUUw6xPK1Zdp/8IYopCfQ+CarGLz96MtXLH4ifkQooHkoHyizXRnhw=";
 
   const manifest = {
     accountAssociation: { header, payload, signature },
