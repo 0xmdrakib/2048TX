@@ -95,7 +95,13 @@ export async function waitForReceipt(params: {
   const timeoutMs = params.timeoutMs ?? 60_000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    // NOTE:
+    // Some embedded wallet providers (notably in-app smart wallets) may *support*
+    // eth_getTransactionReceipt but keep returning `null` even after the tx is mined.
+    // In those cases, querying a public RPC is more reliable.
     let receipt: any = null;
+
+    // 1) Try via the provider first.
     try {
       receipt = await params.provider.request({
         method: "eth_getTransactionReceipt",
@@ -103,7 +109,15 @@ export async function waitForReceipt(params: {
       });
     } catch (e) {
       if (!methodUnsupported(e)) throw e;
+      // If the method is missing, we'll fall back to RPC below.
+    }
+    if (receipt) return receipt;
+
+    // 2) Always attempt via RPC as a fallback (even if provider returned null).
+    try {
       receipt = await rpcRequest("eth_getTransactionReceipt", [params.txHash]);
+    } catch {
+      // ignore and keep polling
     }
     if (receipt) return receipt;
     await new Promise((r) => setTimeout(r, 1200));
