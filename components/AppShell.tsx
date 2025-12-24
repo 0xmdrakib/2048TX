@@ -37,7 +37,6 @@ export default function AppShell() {
 
   const [{ board, score }, setGame] = useState(() => newGame());
   const [gameOver, setGameOver] = useState(false);
-  const [gameOverOpen, setGameOverOpen] = useState(false);
 
   const [themeOpen, setThemeOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -88,7 +87,6 @@ export default function AppShell() {
   const reset = useCallback(() => {
     setGame(newGame());
     setGameOver(false);
-    setGameOverOpen(false);
     setSaveOpen(false);
     setPayOpen(false);
     setPending(null);
@@ -96,6 +94,18 @@ export default function AppShell() {
     setSpentMicro(0);
     setToast({ message: "New game" });
     setTimeout(() => setToast(null), 1200);
+  }, []);
+
+  // Same as reset(), but without showing any toast. Useful when we want to
+  // transition immediately after another successful action (e.g. saving score).
+  const resetSilent = useCallback(() => {
+    setGame(newGame());
+    setGameOver(false);
+    setSaveOpen(false);
+    setPayOpen(false);
+    setPending(null);
+    setMovesPaid(0);
+    setSpentMicro(0);
   }, []);
 
   const refreshOnchainBest = useCallback(async () => {
@@ -155,8 +165,8 @@ export default function AppShell() {
       const ok = hasMoves(b);
       if (!ok) {
         setGameOver(true);
-        // Show a dedicated Game Over sheet. Saving is manual (user must tap).
-        setGameOverOpen(true);
+        // Auto-open save sheet (still requires explicit user signature).
+        setSaveOpen(true);
       }
     },
     []
@@ -297,6 +307,13 @@ export default function AppShell() {
       setToast({ message: "Score saved ✅" });
       setTimeout(() => setToast(null), 1400);
 
+      // If the game was already over, start a fresh game automatically after a
+      // successful save. This keeps the flow snappy (save → play again) without
+      // requiring an extra "New game" tap.
+      if (gameOver) {
+        resetSilent();
+      }
+
       // Refresh best in the background (non-blocking).
       void (async () => {
         try {
@@ -312,7 +329,7 @@ export default function AppShell() {
     } finally {
       setBusy(false);
     }
-  }, [contract, chainId, score, address]);
+  }, [contract, chainId, score, address, gameOver, resetSilent]);
 
   const confirmPendingPayment = useCallback(async () => {
     if (!pending || !payRecipient) {
@@ -462,14 +479,7 @@ export default function AppShell() {
                 Connect
               </Button>
             ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setGameOverOpen(false);
-                setSaveOpen(true);
-              }}
-            >
+            <Button variant="outline" size="sm" onClick={() => setSaveOpen(true)}>
               <Save className="mr-2 h-4 w-4" />
               Save score
             </Button>
@@ -495,7 +505,22 @@ export default function AppShell() {
           </Button>
         </div>
 
-        {/* Game Over UI is shown as a Sheet (bottom drawer), not an inline card. */}
+        {gameOver ? (
+          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 text-sm backdrop-blur">
+            <div className="font-semibold">Game over.</div>
+            <div className="mt-1 text-[var(--muted)]">
+              Your best score is only counted when you save it onchain.
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button onClick={() => setSaveOpen(true)} className="w-full">
+                Save score onchain
+              </Button>
+              <Button variant="outline" onClick={reset} className="w-full">
+                New game
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 text-center text-xs text-[var(--muted)]">
           Swipe or use arrows. In Pay mode, the move commits only after a successful Base Pay payment.
@@ -508,36 +533,6 @@ export default function AppShell() {
         onSelect={(t) => setTheme(t)}
         onClose={() => setThemeOpen(false)}
       />
-
-      <Sheet
-        open={gameOverOpen}
-        title="Game over"
-        onClose={() => setGameOverOpen(false)}
-      >
-        <div className="text-sm text-[var(--muted)]">
-          Your best score is only counted when you save it onchain.
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
-          <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
-          <div className="text-3xl font-extrabold">{score}</div>
-        </div>
-
-        <div className="mt-4 flex gap-2">
-          <Button
-            onClick={() => {
-              setGameOverOpen(false);
-              setSaveOpen(true);
-            }}
-            className="w-full"
-          >
-            Save score onchain
-          </Button>
-          <Button variant="outline" onClick={reset} className="w-full">
-            New game
-          </Button>
-        </div>
-      </Sheet>
 
       <Sheet open={saveOpen} title="Save score onchain" onClose={() => setSaveOpen(false)}>
         <div className="text-sm text-[var(--muted)]">
