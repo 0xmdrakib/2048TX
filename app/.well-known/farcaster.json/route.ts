@@ -65,7 +65,7 @@ export async function GET() {
       ogImageUrl: `${appUrl}/hero.png`,
 
       // Keep hidden during testing
-      noindex: true, // recommended for staging/dev
+      noindex: false, // recommended for staging/dev
 
       // Compatibility requirements (optional, but useful)
       requiredChains: [chain],
