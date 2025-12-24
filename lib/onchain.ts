@@ -3,6 +3,8 @@ import type { EIP1193Provider } from "./types";
 
 const abi = parseAbi([
   "function best(address) view returns (uint32)",
+  "function submissions(address) view returns (uint64)",
+  "function lastScore(address) view returns (uint32)",
   "function submitScore(uint32 score)",
 ]);
 
@@ -28,6 +30,15 @@ async function rpcRequest(method: string, params: any[] = []) {
   return json.result;
 }
 
+async function requestWithTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return await Promise.race([
+    p,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error("RPC request timed out")), ms);
+    }),
+  ]);
+}
+
 export async function getBestScore(params: {
   provider: EIP1193Provider;
   contract: `0x${string}`;
@@ -41,19 +52,59 @@ export async function getBestScore(params: {
 
   let res: string;
   try {
-    res = (await params.provider.request({
-      method: "eth_call",
-      params: [{ to: params.contract, data }, "latest"],
-    })) as string;
+    // Some embedded providers may hang (resolve very slowly) on eth_call.
+    // We apply a short timeout and fall back to a public RPC.
+    res = (await requestWithTimeout(
+      params.provider.request({
+        method: "eth_call",
+        params: [{ to: params.contract, data }, "latest"],
+      }) as Promise<string>,
+      5_000
+    )) as string;
   } catch (e) {
     // Some embedded providers don't implement the full JSON-RPC surface.
-    if (!methodUnsupported(e)) throw e;
+    // If the method is unsupported OR the call timed out, fall back to RPC.
+    if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
     res = (await rpcRequest("eth_call", [{ to: params.contract, data }, "latest"])) as string;
   }
 
   const decoded = decodeFunctionResult({
     abi,
     functionName: "best",
+    data: res as `0x${string}`,
+  });
+
+  return Number(decoded);
+}
+
+export async function getSubmissions(params: {
+  provider: EIP1193Provider;
+  contract: `0x${string}`;
+  address: `0x${string}`;
+}): Promise<number> {
+  const data = encodeFunctionData({
+    abi,
+    functionName: "submissions",
+    args: [params.address],
+  });
+
+  let res: string;
+  try {
+    res = (await requestWithTimeout(
+      params.provider.request({
+        method: "eth_call",
+        params: [{ to: params.contract, data }, "latest"],
+      }) as Promise<string>,
+      5_000
+    )) as string;
+  } catch (e) {
+    if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
+    res = (await rpcRequest("eth_call", [{ to: params.contract, data }, "latest"])) as string;
+  }
+
+  const decoded = decodeFunctionResult({
+    abi,
+    functionName: "submissions",
     data: res as `0x${string}`,
   });
 
