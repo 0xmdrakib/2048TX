@@ -15,7 +15,7 @@ function safeHost(url: string) {
 }
 
 export async function GET() {
-  const appUrlRaw = process.env.NEXT_PUBLIC_APP_URL ?? "https://YOUR_DOMAIN_HERE";
+  const appUrlRaw = process.env.NEXT_PUBLIC_APP_URL ?? "https://2048tx.vercel.app/";
   const appUrl = stripTrailingSlash(appUrlRaw);
 
   // Base mainnet default
@@ -35,7 +35,7 @@ export async function GET() {
 
       // Identity & launch
       homeUrl: appUrl,
-      canonicalDomain: safeHost(appUrl), // optional, but good practice per Farcaster spec :contentReference[oaicite:8]{index=8}
+      canonicalDomain: safeHost(appUrl), // optional, but good practice per Farcaster spec
 
       // Required visuals
       iconUrl: `${appUrl}/icon.png`,
@@ -65,7 +65,7 @@ export async function GET() {
       ogImageUrl: `${appUrl}/hero.png`,
 
       // Keep hidden during testing
-      noindex: true, // recommended for staging/dev :contentReference[oaicite:9]{index=9}
+      noindex: true, // recommended for staging/dev
 
       // Compatibility requirements (optional, but useful)
       requiredChains: [chain],
