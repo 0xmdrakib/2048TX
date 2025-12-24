@@ -369,8 +369,7 @@ export default function AppShell() {
           if (status.status === "completed") {
             // Only now we commit the move.
             const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
-            setBoard(afterSpawn);
-            setScore((s) => s + pending.scoreGain);
+            setGame((g) => ({ board: afterSpawn, score: g.score + pending.scoreGain }));
             setMovesPaid((m) => m + 1);
             setSpentMicro((m) => m + pending.micro);
             setPending(null);
@@ -419,8 +418,7 @@ export default function AppShell() {
 
       // Commit the move only after receipt confirms.
       const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
-      setBoard(afterSpawn);
-      setScore((s) => s + pending.scoreGain);
+      setGame((g) => ({ board: afterSpawn, score: g.score + pending.scoreGain }));
       setMovesPaid((m) => m + 1);
       setSpentMicro((m) => m + pending.micro);
       setPending(null);
