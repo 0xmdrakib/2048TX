@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BasePayButton } from "@base-org/account-ui/react";
 import { pay, getPaymentStatus } from "@base-org/account";
 import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
 
@@ -17,7 +16,7 @@ import type { ThemeId } from "@/lib/themes";
 import { formatMicroUsdc, shorten } from "@/lib/format";
 import { randomMicroUsdc } from "@/lib/randomAmount";
 import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
-import { getBestScore, submitScore, waitForReceipt } from "@/lib/onchain";
+import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
 
 type Mode = "classic" | "pay";
@@ -30,6 +29,11 @@ type PendingMove = {
   amount: string;
 };
 
+function isUserRejected(e: any) {
+  const msg = String(e?.message ?? "").toLowerCase();
+  return e?.code === 4001 || msg.includes("user rejected") || msg.includes("rejected") || msg.includes("cancel");
+}
+
 export default function AppShell() {
   // Theme persists; mode does NOT (default classic every open).
   const [theme, setTheme] = useState<ThemeId>("classic");
@@ -37,10 +41,10 @@ export default function AppShell() {
 
   const [{ board, score }, setGame] = useState(() => newGame());
   const [gameOver, setGameOver] = useState(false);
+  const [gameOverOpen, setGameOverOpen] = useState(false);
 
   const [themeOpen, setThemeOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
 
   const [pending, setPending] = useState<PendingMove | null>(null);
 
@@ -49,13 +53,14 @@ export default function AppShell() {
 
   const [providerReady, setProviderReady] = useState(false);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
-  const [farcasterUserFid, setFarcasterUserFid] = useState<number | null>(null);
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
+  // Prevent rapid multi-swipes from stacking multiple payments before React state updates.
+  const payLockRef = useRef(false);
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
@@ -68,8 +73,6 @@ export default function AppShell() {
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
         await sdk.actions.ready();
-        const fid = typeof (sdk as any)?.context?.user?.fid === "number" ? (sdk as any).context.user.fid : null;
-        setFarcasterUserFid(fid);
       } catch {
         // Not in a Farcaster mini app; ok.
       }
@@ -90,8 +93,8 @@ export default function AppShell() {
   const reset = useCallback(() => {
     setGame(newGame());
     setGameOver(false);
+    setGameOverOpen(false);
     setSaveOpen(false);
-    setPayOpen(false);
     setPending(null);
     setMovesPaid(0);
     setSpentMicro(0);
@@ -156,8 +159,8 @@ export default function AppShell() {
       const ok = hasMoves(b);
       if (!ok) {
         setGameOver(true);
-        // Auto-open save sheet (still requires explicit user signature).
-        setSaveOpen(true);
+        // Show a dedicated Game Over sheet. Saving is manual (user must tap).
+        setGameOverOpen(true);
       }
     },
     []
@@ -177,27 +180,73 @@ export default function AppShell() {
   );
 
   const startPayFlow = useCallback(
-    (dir: Direction) => {
-      if (gameOver || busy) return;
+    async (dir: Direction) => {
+      if (gameOver || busy || payLockRef.current) return;
       if (!payRecipient) {
         setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT" });
         setTimeout(() => setToast(null), 2400);
         return;
       }
+
       const r = move(board, dir);
       if (!r.moved) return;
 
       const { micro, amount } = randomMicroUsdc();
       setPending({ dir, afterMoveBoard: r.board, scoreGain: r.scoreGain, micro, amount });
-      setPayOpen(true);
+
+      try {
+        payLockRef.current = true;
+        setBusy(true);
+        setToast({ message: `Opening payment… (${amount} USDC)` });
+
+        // This opens the Base Pay confirmation sheet immediately.
+        // No intermediate "Base Pay" button click.
+        const payment = await pay({ amount, to: payRecipient, testnet });
+
+        setToast({ message: "Payment sent. Waiting confirmation…" });
+
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 60_000) {
+          const res = await getPaymentStatus({ id: payment.id, testnet });
+          if (res.status === "completed") {
+            const afterSpawn = spawnRandomTile(r.board);
+            setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
+            setMovesPaid((m) => m + 1);
+            setSpentMicro((s) => s + micro);
+
+            setToast({ message: "Move confirmed ✅" });
+            setTimeout(() => setToast(null), 1200);
+
+            checkGameOver(afterSpawn);
+            return;
+          }
+          if (res.status === "failed") {
+            setToast({ message: "Payment failed" });
+            setTimeout(() => setToast(null), 2400);
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+
+        setToast({ message: "Payment still pending. Try again in a moment." });
+        setTimeout(() => setToast(null), 3000);
+      } catch (e: any) {
+        // No desync: do NOT apply move
+        setToast({ message: isUserRejected(e) ? "User rejected tx" : e?.message ?? "Payment cancelled/failed" });
+        setTimeout(() => setToast(null), 2500);
+      } finally {
+        setBusy(false);
+        setPending(null);
+        payLockRef.current = false;
+      }
     },
-    [board, gameOver, busy, payRecipient]
+    [board, gameOver, busy, payRecipient, testnet, checkGameOver]
   );
 
   const onDirection = useCallback(
     (dir: Direction) => {
       if (mode === "classic") applyMoveClassic(dir);
-      else startPayFlow(dir);
+      else void startPayFlow(dir);
     },
     [mode, applyMoveClassic, startPayFlow]
   );
@@ -238,20 +287,75 @@ export default function AppShell() {
 
     try {
       setBusy(true);
+      // Some embedded wallets implement only a subset of EIP-1193.
+      // ensureChain will throw a friendly error if switching is not supported.
       await ensureChain(p, chainId);
 
       const acct = (address ?? (await getAccount(p)) ?? (await requestAccount(p))) as `0x${string}`;
       setAddress(acct);
 
+      // Capture the current submissions count so we can confirm success even if
+      // the embedded provider is flaky about receipts.
+      let prevSubmissions: number | null = null;
+      try {
+        prevSubmissions = await getSubmissions({ provider: p, contract, address: acct });
+      } catch {
+        // non-fatal
+      }
+
       const txHash = await submitScore({ provider: p, contract, from: acct, score });
       setToast({ message: "Saving score onchain…" });
-      await waitForReceipt({ provider: p, txHash });
 
-      const best = await getBestScore({ provider: p, contract, address: acct });
-      setOnchainBest(best);
+      const receiptPromise = (async () => {
+        const receipt = await waitForReceipt({ provider: p, txHash, timeoutMs: 120_000 });
+        const status = (receipt as any)?.status;
+        if (status === "0x0" || status === 0 || status === false) {
+          throw new Error("Transaction reverted. Your score was not saved.");
+        }
+        return receipt;
+      })();
+
+      const racers: Promise<any>[] = [receiptPromise];
+
+      // Fallback confirmation: if we can observe submissions incrementing, we know
+      // the transaction was mined (this works for both "best" and non-best scores).
+      if (prevSubmissions != null) {
+        const submissionsConfirmPromise = (async () => {
+          const started = Date.now();
+          while (Date.now() - started < 120_000) {
+            try {
+              const subsNow = await getSubmissions({ provider: p, contract, address: acct });
+              if (subsNow > prevSubmissions) return subsNow;
+            } catch {
+              // ignore and retry
+            }
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+          throw new Error("Timed out confirming score save.");
+        })();
+        racers.push(submissionsConfirmPromise);
+      }
+
+      // Whichever confirms first: receipt OR onchain state change.
+      await Promise.race(racers);
+
+      // Close the sheet immediately after the tx is confirmed.
+      // Do NOT block UX on a follow-up read, because some embedded providers
+      // (especially in the Base app) can hang on eth_call even after a successful tx.
+      setSaveOpen(false);
 
       setToast({ message: "Score saved ✅" });
       setTimeout(() => setToast(null), 1400);
+
+      // Refresh best in the background (non-blocking).
+      void (async () => {
+        try {
+          const best = await getBestScore({ provider: p, contract, address: acct });
+          setOnchainBest(best);
+        } catch {
+          // Non-fatal: the tx is saved even if we can't refresh best right now.
+        }
+      })();
     } catch (e: any) {
       setToast({ message: e?.message ?? "Save failed" });
       setTimeout(() => setToast(null), 3000);
@@ -259,144 +363,6 @@ export default function AppShell() {
       setBusy(false);
     }
   }, [contract, chainId, score, address]);
-
-  const confirmPendingPayment = useCallback(async () => {
-    if (!pending || !payRecipient) {
-      setToast({ message: "Missing pay configuration." });
-      setTimeout(() => setToast(null), 2400);
-      return;
-    }
-    if (busy) return;
-
-    const isHexAddress = (v: string | undefined | null): v is `0x${string}` =>
-      typeof v === "string" && /^0x[a-fA-F0-9]{40}$/.test(v);
-
-    try {
-      setBusy(true);
-      setToast({ message: "Opening payment…" });
-
-      // Warpcast/Farcaster: use the in-app wallet provider so the confirmation stays inside the mini app.
-      if (farcasterUserFid !== null) {
-        const p = await getEvmProvider();
-        if (!p) throw new Error("Wallet provider not available in Farcaster.");
-        setProviderReady(true);
-
-        await ensureChain(p, chainId);
-
-        const acct =
-          (address as `0x${string}` | null) ||
-          (await getAccount(p)) ||
-          (await requestAccount(p));
-
-        if (!acct) throw new Error("No wallet account found.");
-        setAddress(acct);
-
-        const usdc = process.env.NEXT_PUBLIC_USDC_ADDRESS_BASE;
-        const recipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS;
-
-        if (!isHexAddress(usdc)) {
-          throw new Error("Missing/invalid NEXT_PUBLIC_USDC_ADDRESS_BASE (0x address required).");
-        }
-        if (!isHexAddress(recipient)) {
-          throw new Error("Missing/invalid NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS (0x address required).");
-        }
-
-        // ERC-20 transfer(address,uint256)
-        const selector = "a9059cbb";
-        const toPadded = recipient.slice(2).padStart(64, "0");
-        const amountHex = BigInt(pending.micro).toString(16).padStart(64, "0");
-        const data = `0x${selector}${toPadded}${amountHex}`;
-
-        const txHash = (await p.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: acct,
-              to: usdc,
-              data,
-              value: "0x0",
-            },
-          ],
-        })) as `0x${string}`;
-
-        setToast({ message: "Waiting confirmation…" });
-        await waitForReceipt(p, txHash);
-
-        // Commit the move only after the tx is mined.
-        const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
-        setGame((g) => ({ board: afterSpawn, score: g.score + pending.scoreGain }));
-        setMovesPaid((m) => m + 1);
-        setSpentMicro((m) => m + pending.micro);
-        setPending(null);
-        setPayOpen(false);
-        checkGameOver(afterSpawn);
-
-        setToast({ message: "Move confirmed." });
-        setTimeout(() => setToast(null), 1600);
-        return;
-      }
-
-      // Base App / browser: use Base Pay (existing flow).
-      const payment = await pay({ amount: pending.amount, to: payRecipient, testnet });
-
-      setToast({ message: "Payment sent. Waiting confirmation…" });
-
-      const startedAt = Date.now();
-      // Poll for up to 60s. Base Pay usually confirms quickly, but we keep it sane.
-      while (Date.now() - startedAt < 60_000) {
-        const r = await waitForBasePayReceipt(payment.id);
-        if (r?.success) {
-          // Commit the move
-          const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
-          setGame((g) => ({ board: afterSpawn, score: g.score + pending.scoreGain }));
-          setMovesPaid((m) => m + 1);
-          setSpentMicro((m) => m + pending.micro);
-          setPending(null);
-          setPayOpen(false);
-          checkGameOver(afterSpawn);
-
-          setToast({ message: "Move confirmed." });
-          setTimeout(() => setToast(null), 1600);
-          return;
-        }
-        await new Promise((res) => setTimeout(res, 1100));
-      }
-
-      throw new Error("Payment confirmation timed out.");
-    } catch (e: any) {
-      const msg = e?.message || "Payment failed.";
-      const code = e?.code;
-
-      if (code === 4001 || /rejected/i.test(msg)) {
-        setToast({ message: "User rejected transaction." });
-      } else {
-        setToast({ message: msg });
-      }
-
-      // Do not move the board if payment fails/cancels.
-      setPending(null);
-      setPayOpen(false);
-
-      setTimeout(() => setToast(null), 2400);
-    } finally {
-      setBusy(false);
-    }
-  }, [
-    pending,
-    payRecipient,
-    testnet,
-    busy,
-    checkGameOver,
-    chainId,
-    address,
-    farcasterUserFid,
-  ]);
-
-
-  const cancelPending = useCallback(() => {
-    setPayOpen(false);
-    setPending(null);
-  }, []);
 
   const modeLabel = mode === "classic" ? "Classic" : "Pay-per-move";
 
@@ -434,23 +400,24 @@ export default function AppShell() {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        {/* Make MODE a bit wider to prevent UI jitter on small screens */}
+        <div className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3">
           <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
             <div className="text-[11px] font-semibold opacity-70">SCORE</div>
-            <div className="text-2xl font-extrabold">{score}</div>
+            <div className="text-xl font-extrabold">{score}</div>
           </div>
           <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
             <div className="text-[11px] font-semibold opacity-70">BEST (ONCHAIN)</div>
-            <div className="text-2xl font-extrabold">{onchainBest ?? "—"}</div>
+            <div className="text-xl font-extrabold">{onchainBest ?? "—"}</div>
           </div>
           <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
             <div className="text-[11px] font-semibold opacity-70">MODE</div>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <Button
                 size="sm"
                 variant={mode === "classic" ? "solid" : "outline"}
                 onClick={() => setMode("classic")}
-                className="w-full"
+                className="w-full min-w-0"
               >
                 Classic
               </Button>
@@ -458,7 +425,7 @@ export default function AppShell() {
                 size="sm"
                 variant={mode === "pay" ? "solid" : "outline"}
                 onClick={() => setMode("pay")}
-                className="w-full"
+                className="w-full min-w-0"
               >
                 Pay
               </Button>
@@ -486,7 +453,14 @@ export default function AppShell() {
                 Connect
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={() => setSaveOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setGameOverOpen(false);
+                setSaveOpen(true);
+              }}
+            >
               <Save className="mr-2 h-4 w-4" />
               Save score
             </Button>
@@ -494,7 +468,7 @@ export default function AppShell() {
         </div>
 
         <div className="mt-4" ref={boardRef}>
-          <Board board={board} theme={theme} isLocked={busy || Boolean(pending)} />
+          <Board board={board} theme={theme} isLocked={busy} />
         </div>
 
         <div className="mt-4 grid grid-cols-4 gap-2">
@@ -512,22 +486,7 @@ export default function AppShell() {
           </Button>
         </div>
 
-        {gameOver ? (
-          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 text-sm backdrop-blur">
-            <div className="font-semibold">Game over.</div>
-            <div className="mt-1 text-[var(--muted)]">
-              Your best score is only counted when you save it onchain.
-            </div>
-            <div className="mt-3 flex gap-2">
-              <Button onClick={() => setSaveOpen(true)} className="w-full">
-                Save score onchain
-              </Button>
-              <Button variant="outline" onClick={reset} className="w-full">
-                New game
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        {/* Game Over UI is shown as a Sheet (bottom drawer), not an inline card. */}
 
         <div className="mt-6 text-center text-xs text-[var(--muted)]">
           Swipe or use arrows. In Pay mode, the move commits only after a successful Base Pay payment.
@@ -540,6 +499,36 @@ export default function AppShell() {
         onSelect={(t) => setTheme(t)}
         onClose={() => setThemeOpen(false)}
       />
+
+      <Sheet
+        open={gameOverOpen}
+        title="Game over"
+        onClose={() => setGameOverOpen(false)}
+      >
+        <div className="text-sm text-[var(--muted)]">
+          Your best score is only counted when you save it onchain.
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
+          <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
+          <div className="text-3xl font-extrabold">{score}</div>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Button
+            onClick={() => {
+              setGameOverOpen(false);
+              setSaveOpen(true);
+            }}
+            className="w-full"
+          >
+            Save score onchain
+          </Button>
+          <Button variant="outline" onClick={reset} className="w-full">
+            New game
+          </Button>
+        </div>
+      </Sheet>
 
       <Sheet open={saveOpen} title="Save score onchain" onClose={() => setSaveOpen(false)}>
         <div className="text-sm text-[var(--muted)]">
@@ -567,46 +556,6 @@ export default function AppShell() {
         ) : null}
       </Sheet>
 
-      <Sheet open={payOpen} title="Confirm move" onClose={cancelPending}>
-        <div className="text-sm text-[var(--muted)]">
-          This move requires a micro USDC payment. Amount is randomized to avoid identical-looking spam.
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
-          <div className="text-xs font-semibold opacity-70">AMOUNT</div>
-          <div className="text-2xl font-extrabold">
-            {pending ? pending.amount : "—"} USDC
-          </div>
-          <div className="mt-1 text-xs text-[var(--muted)]">
-            Recipient: {payRecipient ? payRecipient : "—"}
-          </div>
-        </div>
-
-        <div className="mt-4">
-          {payRecipient ? (
-            <div className={busy ? "pointer-events-none opacity-70" : ""}>
-              {farcasterUserFid !== null ? (
-                <Button className="w-full" onClick={confirmPendingPayment} disabled={busy}>
-                  Confirm transaction
-                </Button>
-              ) : (
-                <BasePayButton
-                  colorScheme={theme === "amoled" || theme === "neon" ? "dark" : "light"}
-                  onClick={confirmPendingPayment}
-                />
-              )}
-            </div>
-          ) : (
-            <div className="text-xs text-red-600">Missing NEXT_PUBLIC_PAY_RECIPIENT</div>
-          )}
-        </div>
-
-        <div className="mt-3 flex justify-end">
-          <Button variant="outline" onClick={cancelPending}>
-            Cancel (don&apos;t move)
-          </Button>
-        </div>
-      </Sheet>
     </div>
   );
 }
