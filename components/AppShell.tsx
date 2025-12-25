@@ -56,21 +56,15 @@ export default function AppShell() {
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // True only when running inside a Farcaster Mini App host.
-  const [sdkReady, setSdkReady] = useState(false);
-
   const [toast, setToast] = useState<ToastState>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
   // Prevent rapid multi-swipes from stacking multiple payments before React state updates.
   const payLockRef = useRef(false);
 
-  const contract = (process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS || "").trim() as `0x${string}`;
+  const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
-  const payRecipient = (process.env.NEXT_PUBLIC_PAY_RECIPIENT || "").trim();
-  // Farcaster payments require a raw 0x address (ENS like *.base.eth won't work there).
-  const payRecipientAddress = (process.env.NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS || "").trim();
-  const usdcAddressBase = (process.env.NEXT_PUBLIC_USDC_ADDRESS_BASE || "").trim();
+  const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
   const testnet = (process.env.NEXT_PUBLIC_TESTNET ?? "false") === "true";
 
   // SDK ready (Farcaster mini apps show splash until ready())
@@ -78,16 +72,9 @@ export default function AppShell() {
     (async () => {
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
-        const inMiniApp = await sdk.isInMiniApp();
-        if (!inMiniApp) {
-          setSdkReady(false);
-          return;
-        }
         await sdk.actions.ready();
-        setSdkReady(true);
       } catch {
         // Not in a Farcaster mini app; ok.
-        setSdkReady(false);
       }
     })();
   }, []);
@@ -195,46 +182,10 @@ export default function AppShell() {
   const startPayFlow = useCallback(
     async (dir: Direction) => {
       if (gameOver || busy || payLockRef.current) return;
-      // Use the Farcaster SDK payment sheet only when we are truly running inside
-      // a Farcaster Mini App host. We cache the detection in sdkReady, but we also
-      // re-check here to avoid a race on first interaction.
-      let farcasterSdk: any = null;
-      let isFarcasterHost = sdkReady;
-      if (!isFarcasterHost) {
-        try {
-          const mod = await import("@farcaster/miniapp-sdk");
-          farcasterSdk = mod.sdk;
-          isFarcasterHost = await mod.sdk.isInMiniApp();
-          if (isFarcasterHost) setSdkReady(true);
-        } catch {
-          isFarcasterHost = false;
-        }
-      } else {
-        const mod = await import("@farcaster/miniapp-sdk");
-        farcasterSdk = mod.sdk;
-      }
-      if (isFarcasterHost) {
-        if (!payRecipientAddress) {
-          setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS (0x...)" });
-          setTimeout(() => setToast(null), 2600);
-          return;
-        }
-        if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipientAddress)) {
-          setToast({ message: "NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS must be a 0x address (ENS won't work in Farcaster payments)." });
-          setTimeout(() => setToast(null), 3200);
-          return;
-        }
-        if (!usdcAddressBase || !/^0x[a-fA-F0-9]{40}$/.test(usdcAddressBase)) {
-          setToast({ message: "Missing/invalid NEXT_PUBLIC_USDC_ADDRESS_BASE (must be a 0x ERC-20 address)." });
-          setTimeout(() => setToast(null), 3200);
-          return;
-        }
-      } else {
-        if (!payRecipient) {
-          setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT" });
-          setTimeout(() => setToast(null), 2400);
-          return;
-        }
+      if (!payRecipient) {
+        setToast({ message: "Missing NEXT_PUBLIC_PAY_RECIPIENT" });
+        setTimeout(() => setToast(null), 2400);
+        return;
       }
 
       const r = move(board, dir);
@@ -248,44 +199,8 @@ export default function AppShell() {
         setBusy(true);
         setToast({ message: `Opening payment… (${amount} USDC)` });
 
-        if (isFarcasterHost) {
-          // Farcaster miniapp host: use Farcaster's native payment sheet (no Base Pay web redirect).
-          const sdk = farcasterSdk ?? (await import("@farcaster/miniapp-sdk")).sdk;
-          const token = `eip155:${chainId}/erc20:${usdcAddressBase}`;
-
-          const res = await sdk.actions.sendToken({
-            token,
-            // sendToken takes the smallest unit of the token as a string.
-            // USDC has 6 decimals, so 0.000004 USDC == "4".
-            amount: String(micro),
-            recipientAddress: payRecipientAddress,
-          });
-
-          if (!res?.success) {
-            if (res?.reason === "rejected_by_user") {
-              setToast({ message: "User rejected tx" });
-              setTimeout(() => setToast(null), 1800);
-              return;
-            }
-            setToast({ message: `Payment failed${res?.reason ? ` (${res.reason})` : ""}` });
-            setTimeout(() => setToast(null), 2600);
-            return;
-          }
-
-          // Only now we commit the move.
-          const afterSpawn = spawnRandomTile(r.board);
-          setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
-          setMovesPaid((m) => m + 1);
-          setSpentMicro((s) => s + micro);
-
-          setToast({ message: "Move confirmed ✅" });
-          setTimeout(() => setToast(null), 1200);
-
-          checkGameOver(afterSpawn);
-          return;
-        }
-
-        // Base App / web: use Base Pay flow.
+        // This opens the Base Pay confirmation sheet immediately.
+        // No intermediate "Base Pay" button click.
         const payment = await pay({ amount, to: payRecipient, testnet });
 
         setToast({ message: "Payment sent. Waiting confirmation…" });
@@ -325,7 +240,7 @@ export default function AppShell() {
         payLockRef.current = false;
       }
     },
-    [board, gameOver, busy, payRecipient, payRecipientAddress, usdcAddressBase, chainId, testnet, sdkReady, checkGameOver]
+    [board, gameOver, busy, payRecipient, testnet, checkGameOver]
   );
 
   const onDirection = useCallback(
