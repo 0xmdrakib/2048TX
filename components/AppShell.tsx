@@ -49,6 +49,7 @@ export default function AppShell() {
 
   const [providerReady, setProviderReady] = useState(false);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
+  const [farcasterUserFid, setFarcasterUserFid] = useState<number | null>(null);
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -67,6 +68,8 @@ export default function AppShell() {
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
         await sdk.actions.ready();
+        const fid = typeof (sdk as any)?.context?.user?.fid === "number" ? (sdk as any).context.user.fid : null;
+        setFarcasterUserFid(fid);
       } catch {
         // Not in a Farcaster mini app; ok.
       }
@@ -265,82 +268,75 @@ export default function AppShell() {
     }
     if (busy) return;
 
+    const isHexAddress = (v: string | undefined | null): v is `0x${string}` =>
+      typeof v === "string" && /^0x[a-fA-F0-9]{40}$/.test(v);
+
     try {
       setBusy(true);
       setToast({ message: "Opening payment…" });
 
-// If we are running inside Farcaster (Warpcast) mini app, use an in-app ERC20 tx
-// instead of Base Pay (Base Pay would open an external web page in Farcaster).
-const isFarcasterHost = await (async () => {
-  try {
-    const { sdk } = await import("@farcaster/miniapp-sdk");
-    const ctx: any = (sdk as any)?.context;
-    const clientFid = ctx?.client?.clientFid;
-    const clientName = String(ctx?.client?.name ?? ctx?.client?.displayName ?? "").toLowerCase();
-    // 9152 is the Farcaster client fid commonly observed for Warpcast.
-    return clientFid === 9152 || clientName.includes("warpcast") || clientName.includes("farcaster");
-  } catch {
-    return false;
-  }
-})();
+      // Warpcast/Farcaster: use the in-app wallet provider so the confirmation stays inside the mini app.
+      if (farcasterUserFid !== null) {
+        const p = await getEvmProvider();
+        if (!p) throw new Error("Wallet provider not available in Farcaster.");
+        setProviderReady(true);
 
-if (isFarcasterHost) {
-  if (!provider || !acct) {
-    throw new Error("Wallet not connected.");
-  }
+        await ensureChain(p, chainId);
 
-  const usdcAddress = process.env.NEXT_PUBLIC_USDC_ADDRESS_BASE;
-  const recipientAddress = process.env.NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS;
+        const acct =
+          (address as `0x${string}` | null) ||
+          (await getAccount(p)) ||
+          (await requestAccount(p));
 
-  const isHexAddr = (v?: string) => !!v && /^0x[a-fA-F0-9]{40}$/.test(v);
+        if (!acct) throw new Error("No wallet account found.");
+        setAddress(acct);
 
-  if (!isHexAddr(usdcAddress)) {
-    throw new Error("Missing/invalid NEXT_PUBLIC_USDC_ADDRESS_BASE (must be a 0x address).");
-  }
-  if (!isHexAddr(recipientAddress)) {
-    throw new Error("Missing/invalid NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS (must be a 0x address).");
-  }
+        const usdc = process.env.NEXT_PUBLIC_USDC_ADDRESS_BASE;
+        const recipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS;
 
-  // ERC20 transfer(address,uint256) selector = 0xa9059cbb
-  // We send *micro-USDC* (6 decimals) so p.micro is already in the smallest unit.
-  const method = "0xa9059cbb";
-  const toPadded = recipientAddress!.slice(2).padStart(64, "0");
-  const amtPadded = BigInt(pending.micro).toString(16).padStart(64, "0");
-  const data = (method + toPadded + amtPadded) as `0x${string}`;
+        if (!isHexAddress(usdc)) {
+          throw new Error("Missing/invalid NEXT_PUBLIC_USDC_ADDRESS_BASE (0x address required).");
+        }
+        if (!isHexAddress(recipient)) {
+          throw new Error("Missing/invalid NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS (0x address required).");
+        }
 
-  // This triggers the native Farcaster/Wallet in-app confirm sheet (like your "save score" tx).
-  const txHash = (await provider.request({
-    method: "eth_sendTransaction",
-    params: [
-      {
-        from: acct,
-        to: usdcAddress,
-        data,
-        value: "0x0",
-      },
-    ],
-  })) as string;
+        // ERC-20 transfer(address,uint256)
+        const selector = "a9059cbb";
+        const toPadded = recipient.slice(2).padStart(64, "0");
+        const amountHex = BigInt(pending.micro).toString(16).padStart(64, "0");
+        const data = `0x${selector}${toPadded}${amountHex}`;
 
-  if (!txHash || typeof txHash !== "string") {
-    throw new Error("No transaction hash returned.");
-  }
+        const txHash = (await p.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: acct,
+              to: usdc,
+              data,
+              value: "0x0",
+            },
+          ],
+        })) as `0x${string}`;
 
-  // Commit the move only after the user confirms the tx popup.
-  const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
-  setBoard(afterSpawn);
-  setScore((s) => s + pending.scoreGain);
-  setMovesPaid((m) => m + 1);
-  setSpentMicro((m) => m + pending.micro);
+        setToast({ message: "Waiting confirmation…" });
+        await waitForReceipt(p, txHash);
 
-  setToast({ message: "Payment confirmed." });
+        // Commit the move only after the tx is mined.
+        const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
+        setGame((g) => ({ board: afterSpawn, score: g.score + pending.scoreGain }));
+        setMovesPaid((m) => m + 1);
+        setSpentMicro((m) => m + pending.micro);
+        setPending(null);
+        setPayOpen(false);
+        checkGameOver(afterSpawn);
 
-  setPending(null);
-  setShowPayModal(false);
+        setToast({ message: "Move confirmed." });
+        setTimeout(() => setToast(null), 1600);
+        return;
+      }
 
-  if (checkGameOver(afterSpawn)) setShowGameOverModal(true);
-  return;
-}
-
+      // Base App / browser: use Base Pay (existing flow).
       const payment = await pay({ amount: pending.amount, to: payRecipient, testnet });
 
       setToast({ message: "Payment sent. Waiting confirmation…" });
@@ -348,42 +344,54 @@ if (isFarcasterHost) {
       const startedAt = Date.now();
       // Poll for up to 60s. Base Pay usually confirms quickly, but we keep it sane.
       while (Date.now() - startedAt < 60_000) {
-        const res = await getPaymentStatus({ id: payment.id, testnet });
-        if (res.status === "completed") {
+        const r = await waitForBasePayReceipt(payment.id);
+        if (r?.success) {
+          // Commit the move
           const afterSpawn = spawnRandomTile(pending.afterMoveBoard);
           setGame((g) => ({ board: afterSpawn, score: g.score + pending.scoreGain }));
           setMovesPaid((m) => m + 1);
-          setSpentMicro((s) => s + pending.micro);
-
-          setPayOpen(false);
+          setSpentMicro((m) => m + pending.micro);
           setPending(null);
-          setToast({ message: "Move confirmed ✅" });
-          setTimeout(() => setToast(null), 1200);
-
+          setPayOpen(false);
           checkGameOver(afterSpawn);
+
+          setToast({ message: "Move confirmed." });
+          setTimeout(() => setToast(null), 1600);
           return;
         }
-        if (res.status === "failed") {
-          setToast({ message: "Payment failed" });
-          setTimeout(() => setToast(null), 2400);
-          return;
-        }
-        // pending / not_found: wait and try again
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((res) => setTimeout(res, 1100));
       }
 
-      setToast({ message: "Payment still pending. Try again in a moment." });
-      setTimeout(() => setToast(null), 3000);
+      throw new Error("Payment confirmation timed out.");
     } catch (e: any) {
-      // No desync: do not apply move
-      const msg = String((e as any)?.message ?? "");
-      const rejected = (e as any)?.code === 4001 || /rejected|denied|canceled|cancelled/i.test(msg);
-      setToast({ message: rejected ? "User rejected transaction." : (msg || "Payment cancelled/failed") });
-      setTimeout(() => setToast(null), 3000);
+      const msg = e?.message || "Payment failed.";
+      const code = e?.code;
+
+      if (code === 4001 || /rejected/i.test(msg)) {
+        setToast({ message: "User rejected transaction." });
+      } else {
+        setToast({ message: msg });
+      }
+
+      // Do not move the board if payment fails/cancels.
+      setPending(null);
+      setPayOpen(false);
+
+      setTimeout(() => setToast(null), 2400);
     } finally {
       setBusy(false);
     }
-  }, [pending, payRecipient, testnet, busy, checkGameOver, provider, acct]);
+  }, [
+    pending,
+    payRecipient,
+    testnet,
+    busy,
+    checkGameOver,
+    chainId,
+    address,
+    farcasterUserFid,
+  ]);
+
 
   const cancelPending = useCallback(() => {
     setPayOpen(false);
@@ -577,10 +585,16 @@ if (isFarcasterHost) {
         <div className="mt-4">
           {payRecipient ? (
             <div className={busy ? "pointer-events-none opacity-70" : ""}>
-              <BasePayButton
-                colorScheme={theme === "amoled" || theme === "neon" ? "dark" : "light"}
-                onClick={confirmPendingPayment}
-              />
+              {farcasterUserFid !== null ? (
+                <Button className="w-full" onClick={confirmPendingPayment} disabled={busy}>
+                  Confirm transaction
+                </Button>
+              ) : (
+                <BasePayButton
+                  colorScheme={theme === "amoled" || theme === "neon" ? "dark" : "light"}
+                  onClick={confirmPendingPayment}
+                />
+              )}
             </div>
           ) : (
             <div className="text-xs text-red-600">Missing NEXT_PUBLIC_PAY_RECIPIENT</div>
