@@ -18,6 +18,7 @@ import { randomMicroUsdc } from "@/lib/randomAmount";
 import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
 import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
+import { encodeFunctionData, parseAbi } from "viem";
 
 type Mode = "classic" | "pay";
 
@@ -38,6 +39,7 @@ export default function AppShell() {
   // Theme persists; mode does NOT (default classic every open).
   const [theme, setTheme] = useState<ThemeId>("classic");
   const [mode, setMode] = useState<Mode>("classic");
+  const [inFarcasterHost, setInFarcasterHost] = useState(false);
 
   const [{ board, score }, setGame] = useState(() => newGame());
   const [gameOver, setGameOver] = useState(false);
@@ -64,7 +66,12 @@ export default function AppShell() {
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
-  const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
+
+  // Base Pay can accept ENS (e.g. 0xmdrakib.base.eth). Farcaster wallet tx needs a raw 0x address.
+  const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT ?? "";
+  const payRecipientAddress = (process.env.NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS ?? "") as `0x${string}` | "";
+  const usdcAddress = (process.env.NEXT_PUBLIC_USDC_ADDRESS_BASE ?? "") as `0x${string}` | "";
+
   const testnet = (process.env.NEXT_PUBLIC_TESTNET ?? "false") === "true";
 
   // SDK ready (Farcaster mini apps show splash until ready())
@@ -72,6 +79,12 @@ export default function AppShell() {
     (async () => {
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
+        try {
+          const inMini = await (sdk as any).isInMiniApp?.();
+          setInFarcasterHost(!!inMini);
+        } catch {
+          setInFarcasterHost(false);
+        }
         await sdk.actions.ready();
       } catch {
         // Not in a Farcaster mini app; ok.
@@ -201,6 +214,42 @@ export default function AppShell() {
 
         // This opens the Base Pay confirmation sheet immediately.
         // No intermediate "Base Pay" button click.
+        if (inFarcasterHost) {
+          // Farcaster: send a USDC transfer via wallet provider so the confirmation sheet stays inside the mini app.
+          const isHexAddress = (v: string) => /^0x[a-fA-F0-9]{40}$/.test(v);
+          if (!isHexAddress(usdcAddress)) throw new Error("NEXT_PUBLIC_USDC_ADDRESS_BASE must be a 0x address");
+          if (!isHexAddress(payRecipientAddress)) throw new Error("NEXT_PUBLIC_PAY_RECIPIENT_ADDRESS must be a 0x address");
+
+          const p = await getEvmProvider();
+          if (!p) throw new Error("No wallet provider found");
+          const from = await getAccount(p);
+          if (!from) throw new Error("Wallet not connected");
+          await ensureChain(p, chainId);
+
+          const erc20Abi = parseAbi(["function transfer(address to,uint256 amount) returns (bool)"]);
+          const data = encodeFunctionData({
+            abi: erc20Abi,
+            functionName: "transfer",
+            args: [payRecipientAddress as `0x${string}`, BigInt(micro)],
+          });
+
+          // Wallet confirmation sheet (stays inside Farcaster mini app)
+          await (p as any).request({
+            method: "eth_sendTransaction",
+            params: [{ from, to: usdcAddress, data, value: "0x0" }],
+          });
+
+          setToast({ message: "Payment confirmed. Applying move…" });
+          const afterSpawn = spawnRandomTile(r.board);
+          setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
+          setMovesPaid((m) => m + 1);
+          setSpentMicro((s) => s + micro);
+          setGameOver(checkGameOver(afterSpawn));
+          setTimeout(() => setToast(null), 1200);
+          return;
+        }
+
+        // Base app: Base Pay confirmation sheet + status polling
         const payment = await pay({ amount, to: payRecipient, testnet });
 
         setToast({ message: "Payment sent. Waiting confirmation…" });
