@@ -40,7 +40,7 @@ export async function GET() {
       // Required visuals
       iconUrl: `${appUrl}/icon.png`,
       splashImageUrl: `${appUrl}/splash.png`,
-      splashBackgroundColor: "#faf8f0",
+      splashBackgroundColor: "#0000ff",
 
       // Base discovery (required by Base schema)
       primaryCategory: "games",
