@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publicClient, scoreSubmittedEvent } from "@/lib/server/chainClient";
 import { KEYS, getRedis } from "@/lib/server/leaderboardStore";
+import { syncWeeklyLeaderboard } from "@/lib/server/syncWeeklyLeaderboard";
 
 export const dynamic = "force-dynamic";
 
@@ -29,47 +30,61 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
+  const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS;
   if (!contract) {
-    return NextResponse.json({ ok: false, error: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS" },
+      { status: 500 }
+    );
   }
 
-  const deployBlock = BigInt(process.env.SCORE_CONTRACT_DEPLOY_BLOCK ?? "0");
-  const last = await redis.get<string>(KEYS.lastBlock);
-  let fromBlock = last ? BigInt(last) + 1n : deployBlock;
+  // ----- All-time indexing (lb:z) -----
+  const deploy = process.env.SCORE_CONTRACT_DEPLOY_BLOCK;
+  const last = await redis.get<number | string>(KEYS.lastBlock);
 
-  const toBlock = await publicClient.getBlockNumber();
-  if (fromBlock > toBlock) {
-    return NextResponse.json({ ok: true, message: "No new blocks", fromBlock: String(fromBlock), toBlock: String(toBlock) });
-  }
+  const latest = await publicClient.getBlockNumber();
+
+  let fromBlock =
+    last !== null && last !== undefined
+      ? BigInt(last) + 1n
+      : deploy
+        ? BigInt(deploy)
+        : 0n;
+
+  const toBlock = latest;
 
   let logsProcessed = 0;
   const touched = new Set<string>();
 
-  for (let start = fromBlock; start <= toBlock; start += CHUNK) {
-    const end = start + CHUNK - 1n > toBlock ? toBlock : start + CHUNK - 1n;
+  if (fromBlock <= toBlock) {
+    for (let start = fromBlock; start <= toBlock; start += CHUNK) {
+      const end = start + CHUNK - 1n > toBlock ? toBlock : start + CHUNK - 1n;
 
-    const logs = await publicClient.getLogs({
-      address: contract,
-      event: scoreSubmittedEvent,
-      fromBlock: start,
-      toBlock: end,
-    });
+      const logs = await publicClient.getLogs({
+        address: contract as `0x${string}`,
+        event: scoreSubmittedEvent,
+        fromBlock: start,
+        toBlock: end,
+      });
 
-    if (logs.length) {
-      const pipeline = redis.pipeline();
-      for (const log of logs) {
-        const player = (log.args.player as string).toLowerCase();
-        const bestScore = Number(log.args.bestScore);
-        pipeline.zadd(KEYS.z, { score: bestScore, member: player });
-        touched.add(player);
+      if (logs.length) {
+        const pipeline = redis.pipeline();
+        for (const log of logs as any[]) {
+          const player = (String(log.args.player) as string).toLowerCase();
+          const bestScore = Number(log.args.bestScore);
+          pipeline.zadd(KEYS.z, { score: bestScore, member: player });
+          touched.add(player);
+        }
+        await pipeline.exec();
+        logsProcessed += logs.length;
       }
-      await pipeline.exec();
-      logsProcessed += logs.length;
-    }
 
-    await redis.set(KEYS.lastBlock, String(end));
+      await redis.set(KEYS.lastBlock, String(end));
+    }
   }
+
+  // ----- Weekly indexing (lb:weekly:...) -----
+  const weekly = await syncWeeklyLeaderboard(redis);
 
   return NextResponse.json({
     ok: true,
@@ -78,5 +93,6 @@ export async function GET(req: NextRequest) {
     toBlock: String(toBlock),
     logsProcessed,
     usersTouched: touched.size,
+    weekly,
   });
 }
