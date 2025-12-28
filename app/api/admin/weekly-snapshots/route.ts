@@ -19,15 +19,22 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Simple protection: pass ?key=... or header x-admin-key: ...
   const want = process.env.ADMIN_KEY;
   if (want) {
-    const key = req.nextUrl.searchParams.get("key") ?? req.headers.get("x-admin-key");
+    const key = req.nextUrl.searchParams.get("key");
     if (key !== want) return unauthorized();
   }
 
+  const weekParam = req.nextUrl.searchParams.get("week");
+  if (weekParam) {
+    const weekIndex = Number(weekParam);
+    const snap = await redis.get<any>(KEYS.weeklySnapshotKey(weekIndex));
+    if (!snap) return NextResponse.json({ ok: false, error: "Snapshot not found" }, { status: 404 });
+    return NextResponse.json({ ok: true, snapshot: { key: KEYS.weeklySnapshotKey(weekIndex), ...snap } });
+  }
+
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? "12"), 52);
-  const keys = (await redis.lrange(KEYS.snapshots, 0, limit - 1)) as string[];
+  const keys = (await redis.lrange(KEYS.weeklySnapshots, 0, limit - 1)) as string[];
 
   const snapshots: any[] = [];
   for (const k of keys) {
