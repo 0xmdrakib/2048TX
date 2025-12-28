@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KEYS, redis } from "@/lib/server/leaderboardStore";
+import { KEYS, getRedis } from "@/lib/server/leaderboardStore";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +22,23 @@ export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
   if (secret && auth !== `Bearer ${secret}`) return unauthorized();
 
+  const redis = getRedis();
+  if (!redis) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
+      },
+      { status: 500 }
+    );
+  }
+
   const now = new Date();
   const weekId = isoWeekId(now);
   const snapshotKey = KEYS.snapshotKey(weekId);
 
-    const raw = (await redis.zrange(KEYS.z, 0, 99, { rev: true, withScores: true })) as Array<string | number>;
-  const top100 = [] as Array<{ rank: number; address: string; bestScore: number }>;
+  const raw = (await redis.zrange(KEYS.z, 0, 99, { rev: true, withScores: true })) as Array<string | number>;
+  const top100: Array<{ rank: number; address: string; bestScore: number }> = [];
   for (let i = 0; i < raw.length; i += 2) {
     top100.push({
       rank: top100.length + 1,
