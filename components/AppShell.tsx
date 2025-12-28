@@ -186,7 +186,9 @@ useEffect(() => {
     if (!p) return;
     setProviderReady(true);
 
-    const acct = await getAccount(provider);
+    
+    const provider = p as NonNullable<typeof p>;
+const acct = await getAccount(provider);
     if (!acct) return;
     setAddress(acct);
 
@@ -216,7 +218,9 @@ useEffect(() => {
       return;
     }
     setProviderReady(true);
-    try {
+    
+    const provider = p as NonNullable<typeof p>;
+try {
       await ensureChain(provider, chainId);
       const acct = await requestAccount(provider);
       setAddress(acct);
