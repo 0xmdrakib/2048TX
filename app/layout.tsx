@@ -18,8 +18,8 @@ export const metadata: Metadata = {
 //    (and optionally fc:frame for backwards compatibility)
 // ---------------------------------------------------------------------------
 
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://2048tx.vercel.app").replace(/\/$/, "");
-const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad87c690810df";
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
+const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "";
 
 const EMBED = {
   version: "next",
