@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publicClient, scoreSubmittedEvent } from "@/lib/server/chainClient";
-import { KEYS, redis } from "@/lib/server/leaderboardStore";
+import { KEYS, getRedis } from "@/lib/server/leaderboardStore";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +12,22 @@ function unauthorized() {
 }
 
 export async function GET(req: NextRequest) {
+  // Vercel Cron Jobs: if you set CRON_SECRET as an env var in the Vercel project,
+  // Vercel will automatically include it as an Authorization Bearer token.
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization");
   if (secret && auth !== `Bearer ${secret}`) return unauthorized();
+
+  const redis = getRedis();
+  if (!redis) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
+      },
+      { status: 500 }
+    );
+  }
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   if (!contract) {
@@ -31,7 +44,6 @@ export async function GET(req: NextRequest) {
   }
 
   let logsProcessed = 0;
-  let usersTouched = 0;
   const touched = new Set<string>();
 
   for (let start = fromBlock; start <= toBlock; start += CHUNK) {
@@ -45,7 +57,6 @@ export async function GET(req: NextRequest) {
     });
 
     if (logs.length) {
-      // Pipeline updates: bestScore only increases, so zadd is safe.
       const pipeline = redis.pipeline();
       for (const log of logs) {
         const player = (log.args.player as string).toLowerCase();
@@ -55,7 +66,6 @@ export async function GET(req: NextRequest) {
       }
       await pipeline.exec();
       logsProcessed += logs.length;
-      usersTouched += touched.size;
     }
 
     await redis.set(KEYS.lastBlock, String(end));
