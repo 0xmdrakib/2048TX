@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/sync-leaderboard", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/snapshot-weekly", "schedule": "0 0 * * 1" }
+  ]
+}
