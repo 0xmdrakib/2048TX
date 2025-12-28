@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pay, getPaymentStatus } from "@base-org/account";
-import { RotateCcw, Palette, Save, Menu, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
+import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -469,8 +469,8 @@ useEffect(() => {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Leaderboard">
-              <Menu className="h-4 w-4" />
+            <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
+              <Trophy className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
               <Palette className="h-4 w-4" />
