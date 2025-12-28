@@ -186,18 +186,18 @@ useEffect(() => {
     if (!p) return;
     setProviderReady(true);
 
-    const acct = await getAccount(p);
+    const acct = await getAccount(provider);
     if (!acct) return;
     setAddress(acct);
 
     try {
-      await ensureChain(p, chainId);
+      await ensureChain(provider, chainId);
     } catch {
       // if chain switch fails, reads might still work on current chain, but score contract likely won't.
     }
 
     try {
-      const best = await getBestScore({ provider: p, contract, address: acct });
+      const best = await getBestScore({ provider, contract, address: acct });
       setOnchainBest(best);
     } catch {
       // ignore
@@ -217,11 +217,11 @@ useEffect(() => {
     }
     setProviderReady(true);
     try {
-      await ensureChain(p, chainId);
-      const acct = await requestAccount(p);
+      await ensureChain(provider, chainId);
+      const acct = await requestAccount(provider);
       setAddress(acct);
       if (contract) {
-        const best = await getBestScore({ provider: p, contract, address: acct });
+        const best = await getBestScore({ provider, contract, address: acct });
         setOnchainBest(best);
       }
       setToast({ message: "Wallet connected" });
@@ -363,29 +363,31 @@ useEffect(() => {
     }
     setProviderReady(true);
 
-    try {
+    
+    const provider = p as NonNullable<typeof p>;
+try {
       setBusy(true);
       // Some embedded wallets implement only a subset of EIP-1193.
       // ensureChain will throw a friendly error if switching is not supported.
-      await ensureChain(p, chainId);
+      await ensureChain(provider, chainId);
 
-      const acct = (address ?? (await getAccount(p)) ?? (await requestAccount(p))) as `0x${string}`;
+      const acct = (address ?? (await getAccount(provider)) ?? (await requestAccount(provider))) as `0x${string}`;
       setAddress(acct);
 
       // Capture the current submissions count so we can confirm success even if
       // the embedded provider is flaky about receipts.
       let prevSubmissions: number | null = null;
       try {
-        prevSubmissions = await getSubmissions({ provider: p, contract, address: acct });
+        prevSubmissions = await getSubmissions({ provider, contract, address: acct });
       } catch {
         // non-fatal
       }
 
-      const txHash = await submitScore({ provider: p, contract, from: acct, score });
+      const txHash = await submitScore({ provider, contract, from: acct, score });
       setToast({ message: "Saving score onchain…" });
 
       const receiptPromise = (async () => {
-        const receipt = await waitForReceipt({ provider: p, txHash, timeoutMs: 120_000 });
+        const receipt = await waitForReceipt({ provider, txHash, timeoutMs: 120_000 });
         const status = (receipt as any)?.status;
         if (status === "0x0" || status === 0 || status === false) {
           throw new Error("Transaction reverted. Your score was not saved.");
@@ -402,7 +404,7 @@ useEffect(() => {
           const started = Date.now();
           while (Date.now() - started < 120_000) {
             try {
-              const subsNow = await getSubmissions({ provider: p, contract, address: acct });
+              const subsNow = await getSubmissions({ provider, contract, address: acct });
               if (subsNow > prevSubmissions) return subsNow;
             } catch {
               // ignore and retry
@@ -425,18 +427,18 @@ useEffect(() => {
       setToast({ message: "Score saved ✅" });
       setTimeout(() => setToast(null), 1400);
 
-      
-      return true;
-// Refresh best in the background (non-blocking).
+      // Refresh best in the background (non-blocking).
       void (async () => {
         try {
-          const best = await getBestScore({ provider: p, contract, address: acct });
+          const best = await getBestScore({ provider, contract, address: acct });
           setOnchainBest(best);
         } catch {
           // Non-fatal: the tx is saved even if we can't refresh best right now.
         }
       })();
-    } catch (e: any) {
+
+      return true;
+} catch (e: any) {
       setToast({ message: e?.message ?? "Save failed" });
       setTimeout(() => setToast(null), 3000);
     
@@ -564,7 +566,7 @@ useEffect(() => {
             <Button
               variant="outline"
               size="sm"
-              onClick={saveScoreFromGameOver}
+              onClick={() => setSaveOpen(true)}
             >
               <Save className="mr-2 h-4 w-4" />
               Save score
@@ -674,10 +676,7 @@ useEffect(() => {
 
         <div className="mt-4 flex gap-2">
           <Button
-            onClick={() => {
-              setGameOverOpen(false);
-              setSaveOpen(true);
-            }}
+            onClick={saveScoreFromGameOver} disabled={busy}
             className="w-full"
           >
             Save score onchain
