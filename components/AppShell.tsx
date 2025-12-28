@@ -587,9 +587,9 @@ useEffect(() => {
         onClose={() => setLeaderboardOpen(false)}
       >
         <div className="flex items-center justify-between gap-3">
-          <div className="text-xs opacity-70">
+          <div className="text-xs opacity-70 flex items-center gap-2 flex-wrap">
   This week’s best onchain scores
-  {weekTimeLeft ? <span className="ml-2 rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px]">⏳ {weekTimeLeft} left</span> : null}
+  {weekTimeLeft ? <span className="ml-2 rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px] whitespace-nowrap">⏳ {weekTimeLeft} left</span> : null}
 </div>
           <Button size="sm" variant="outline" onClick={() => loadLeaderboard(true)} disabled={leaderboardLoading}>
             {leaderboardLoading ? "Loading…" : "Refresh"}
