@@ -66,7 +66,7 @@ export async function GET() {
 
       // Keep hidden during testing
       noindex: false, // recommended for staging/dev
-
+      webhookUrl: "https://https://2048tx.vercel.app/api/webhook",
       // Compatibility requirements (optional, but useful)
       requiredChains: [chain],
       requiredCapabilities: ["actions.ready", "wallet.getEthereumProvider"],
