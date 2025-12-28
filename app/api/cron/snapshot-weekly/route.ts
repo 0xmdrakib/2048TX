@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { KEYS, getRedis } from "@/lib/server/leaderboardStore";
+import { getOrInitWeeklyEpoch, getWeekMeta, getWeekBounds } from "@/lib/server/weeklySeason";
 
 export const dynamic = "force-dynamic";
 
 function unauthorized() {
   return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-}
-
-function isoWeekId(d: Date) {
-  // ISO week like 2025-W01
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -33,30 +24,51 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const now = new Date();
-  const weekId = isoWeekId(now);
-  const snapshotKey = KEYS.snapshotKey(weekId);
+  const epochSeconds = await getOrInitWeeklyEpoch(redis);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const meta = getWeekMeta(epochSeconds, nowSeconds);
 
-  const raw = (await redis.zrange(KEYS.z, 0, 99, { rev: true, withScores: true })) as Array<string | number>;
-  const top100: Array<{ rank: number; address: string; bestScore: number }> = [];
-  for (let i = 0; i < raw.length; i += 2) {
-    top100.push({
-      rank: top100.length + 1,
-      address: String(raw[i]).toLowerCase(),
-      bestScore: Number(raw[i + 1] ?? 0),
-    });
+  // The week that just finished
+  const targetWeek = meta.weekIndex - 1;
+  if (targetWeek < 0) {
+    return NextResponse.json({ ok: true, message: "No completed week yet.", weekIndex: meta.weekIndex });
   }
 
-  const payload = {
-    weekId,
-    createdAt: now.toISOString(),
-    chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 8453),
-    contract: process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS ?? null,
-    top100,
-  };
+  const lastSnap = Number((await redis.get<number | string>(KEYS.weeklyLastSnapWeek)) ?? -1);
 
-  await redis.set(snapshotKey, payload);
-  await redis.lpush(KEYS.snapshots, snapshotKey);
+  const snapped: number[] = [];
 
-  return NextResponse.json({ ok: true, weekId, snapshotKey, count: top100.length });
+  for (let w = lastSnap + 1; w <= targetWeek; w++) {
+    const raw = (await redis.zrange(KEYS.weeklyZ(w), 0, 99, { rev: true, withScores: true })) as Array<
+      string | number
+    >;
+
+    const top100: Array<{ address: string; bestScore: number }> = [];
+    for (let i = 0; i < raw.length; i += 2) {
+      const address = String(raw[i] ?? "");
+      const bestScore = Number(raw[i + 1] ?? 0);
+      if (address) top100.push({ address, bestScore });
+    }
+
+    const { start, end } = getWeekBounds(epochSeconds, w);
+
+    const payload = {
+      weekIndex: w,
+      createdAt: new Date().toISOString(),
+      weekStartsAt: new Date(start * 1000).toISOString(),
+      weekEndsAt: new Date(end * 1000).toISOString(),
+      chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 8453),
+      contract: process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS ?? null,
+      top100,
+    };
+
+    const key = KEYS.weeklySnapshotKey(w);
+    await redis.set(key, payload);
+    await redis.lpush(KEYS.weeklySnapshots, key);
+    await redis.set(KEYS.weeklyLastSnapWeek, String(w));
+
+    snapped.push(w);
+  }
+
+  return NextResponse.json({ ok: true, snappedWeeks: snapped, count: snapped.length });
 }
