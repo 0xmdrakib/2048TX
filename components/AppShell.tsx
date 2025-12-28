@@ -491,11 +491,15 @@ try {
                 <span className="font-semibold">{modeLabel}</span>
               </Chip>
               {mode === "pay" ? (
-                <Chip className="max-w-full flex-wrap">
-                  <span className="opacity-70">This session</span>
-                  <span className="font-semibold">{movesPaid} moves</span>
-                  <span className="opacity-70">•</span>
-                  <span className="font-semibold">{formatMicroUsdc(spentMicro)} USDC</span>
+                <Chip className="max-w-full rounded-lg px-4 py-2 items-start">
+                  <div className="flex flex-col leading-tight">
+                    <span className="opacity-70 text-[11px]">This session</span>
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold">{movesPaid} moves</span>
+                      <span className="opacity-70">•</span>
+                      <span className="font-semibold">{formatMicroUsdc(spentMicro)} USDC</span>
+                    </div>
+                  </div>
                 </Chip>
               ) : null}
             </div>
