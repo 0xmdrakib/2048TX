@@ -483,7 +483,7 @@ try {
 
       <div className="mx-auto w-full max-w-md">
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
             <div className="mt-1 flex items-center gap-2">
               <Chip>
@@ -491,7 +491,7 @@ try {
                 <span className="font-semibold">{modeLabel}</span>
               </Chip>
               {mode === "pay" ? (
-                <Chip>
+                <Chip className="max-w-full flex-wrap">
                   <span className="opacity-70">This session</span>
                   <span className="font-semibold">{movesPaid} moves</span>
                   <span className="opacity-70">•</span>
@@ -501,7 +501,7 @@ try {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
               <Trophy className="h-4 w-4" />
             </Button>
