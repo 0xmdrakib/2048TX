@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { KEYS, redis } from "@/lib/server/leaderboardStore";
+import { KEYS, getRedis } from "@/lib/server/leaderboardStore";
 
 type Entry = { address: string; bestScore: number };
 
@@ -9,9 +9,8 @@ export async function GET() {
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS ?? null;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 8453);
 
-  // If Upstash isn't configured, return a friendly error for the UI.
-  const hasRedis = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-  if (!hasRedis) {
+  const redis = getRedis();
+  if (!redis) {
     return NextResponse.json(
       {
         ok: false,
@@ -21,8 +20,7 @@ export async function GET() {
     );
   }
 
-  // Top 100 (highest scores first)
-    const raw = (await redis.zrange(KEYS.z, 0, 99, { rev: true, withScores: true })) as Array<string | number>;
+  const raw = (await redis.zrange(KEYS.z, 0, 99, { rev: true, withScores: true })) as Array<string | number>;
 
   const top100: Entry[] = [];
   for (let i = 0; i < raw.length; i += 2) {
