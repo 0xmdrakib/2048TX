@@ -49,6 +49,13 @@ export default function AppShell() {
   const [leaderboard, setLeaderboard] = useState<Array<{ address: string; bestScore: number }> | null>(null);
   const [leaderboardErr, setLeaderboardErr] = useState<string | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardMeta, setLeaderboardMeta] = useState<{
+    weekIndex: number;
+    weekStartsAt: string;
+    weekEndsAt: string;
+    secondsLeft: number;
+  } | null>(null);
+  const [weekTimeLeft, setWeekTimeLeft] = useState<string>("");
 
   const [pending, setPending] = useState<PendingMove | null>(null);
 
@@ -106,25 +113,71 @@ export default function AppShell() {
     setTimeout(() => setToast(null), 1200);
   }, []);
 
-  const loadLeaderboard = useCallback(async () => {
-    setLeaderboardLoading(true);
-    setLeaderboardErr(null);
-    try {
-      const res = await fetch("/api/leaderboard", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load leaderboard");
-      setLeaderboard(json.top100 ?? []);
-    } catch (e: any) {
-      setLeaderboard(null);
-      setLeaderboardErr(String(e?.message ?? e));
-    } finally {
-      setLeaderboardLoading(false);
+  const loadLeaderboard = useCallback(async (doRefresh: boolean = false) => {
+  setLeaderboardLoading(true);
+  setLeaderboardErr(null);
+  try {
+    const url = doRefresh ? "/api/leaderboard?refresh=1" : "/api/leaderboard";
+    const res = await fetch(url, { cache: "no-store" });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load leaderboard");
+    setLeaderboard(json.top100 ?? []);
+    if (json.weekEndsAt) {
+      setLeaderboardMeta({
+        weekIndex: Number(json.weekIndex ?? 0),
+        weekStartsAt: String(json.weekStartsAt ?? ""),
+        weekEndsAt: String(json.weekEndsAt ?? ""),
+        secondsLeft: Number(json.secondsLeft ?? 0),
+      });
     }
-  }, []);
+  } catch (e: any) {
+    setLeaderboard(null);
+    setLeaderboardMeta(null);
+    setLeaderboardErr(String(e?.message ?? e));
+  } finally {
+    setLeaderboardLoading(false);
+  }
+}, []);
+
 
   useEffect(() => {
-    if (leaderboardOpen) loadLeaderboard();
+    if (leaderboardOpen) loadLeaderboard(true);
   }, [leaderboardOpen, loadLeaderboard]);
+
+// While the leaderboard sheet is open, poll periodically so it updates without manual refresh.
+useEffect(() => {
+  if (!leaderboardOpen) return;
+  const id = window.setInterval(() => {
+    loadLeaderboard(false);
+  }, 20000);
+  return () => window.clearInterval(id);
+}, [leaderboardOpen, loadLeaderboard]);
+
+// Live countdown for "time left this week"
+useEffect(() => {
+  if (!leaderboardOpen) return;
+  if (!leaderboardMeta?.weekEndsAt) return;
+
+  const tick = () => {
+    const end = new Date(leaderboardMeta.weekEndsAt).getTime();
+    const diff = Math.max(0, end - Date.now());
+    const totalSeconds = Math.floor(diff / 1000);
+
+    const d = Math.floor(totalSeconds / 86400);
+    const h = Math.floor((totalSeconds % 86400) / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const label = d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`;
+    setWeekTimeLeft(label);
+  };
+
+  tick();
+  const id = window.setInterval(tick, 1000);
+  return () => window.clearInterval(id);
+}, [leaderboardOpen, leaderboardMeta]);
+
 
 
   const refreshOnchainBest = useCallback(async () => {
@@ -534,8 +587,11 @@ export default function AppShell() {
         onClose={() => setLeaderboardOpen(false)}
       >
         <div className="flex items-center justify-between gap-3">
-          <div className="text-xs opacity-70">Best onchain scores (updates automatically)</div>
-          <Button size="sm" variant="outline" onClick={loadLeaderboard} disabled={leaderboardLoading}>
+          <div className="text-xs opacity-70">
+  This week’s best onchain scores
+  {weekTimeLeft ? <span className="ml-2 rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px]">⏳ {weekTimeLeft} left</span> : null}
+</div>
+          <Button size="sm" variant="outline" onClick={() => loadLeaderboard(true)} disabled={leaderboardLoading}>
             {leaderboardLoading ? "Loading…" : "Refresh"}
           </Button>
         </div>
