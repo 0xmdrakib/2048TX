@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pay, getPaymentStatus } from "@base-org/account";
-import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
+import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -45,17 +45,6 @@ export default function AppShell() {
 
   const [themeOpen, setThemeOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
-  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<Array<{ address: string; bestScore: number }> | null>(null);
-  const [leaderboardErr, setLeaderboardErr] = useState<string | null>(null);
-  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
-  const [leaderboardMeta, setLeaderboardMeta] = useState<{
-    weekIndex: number;
-    weekStartsAt: string;
-    weekEndsAt: string;
-    secondsLeft: number;
-  } | null>(null);
-  const [weekTimeLeft, setWeekTimeLeft] = useState<string>("");
 
   const [pending, setPending] = useState<PendingMove | null>(null);
 
@@ -112,73 +101,6 @@ export default function AppShell() {
     setToast({ message: "New game" });
     setTimeout(() => setToast(null), 1200);
   }, []);
-
-  const loadLeaderboard = useCallback(async (doRefresh: boolean = false) => {
-  setLeaderboardLoading(true);
-  setLeaderboardErr(null);
-  try {
-    const url = doRefresh ? "/api/leaderboard?refresh=1" : "/api/leaderboard";
-    const res = await fetch(url, { cache: "no-store" });
-    const json = await res.json();
-    if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load leaderboard");
-    setLeaderboard(json.top100 ?? []);
-    if (json.weekEndsAt) {
-      setLeaderboardMeta({
-        weekIndex: Number(json.weekIndex ?? 0),
-        weekStartsAt: String(json.weekStartsAt ?? ""),
-        weekEndsAt: String(json.weekEndsAt ?? ""),
-        secondsLeft: Number(json.secondsLeft ?? 0),
-      });
-    }
-  } catch (e: any) {
-    setLeaderboard(null);
-    setLeaderboardMeta(null);
-    setLeaderboardErr(String(e?.message ?? e));
-  } finally {
-    setLeaderboardLoading(false);
-  }
-}, []);
-
-
-  useEffect(() => {
-    if (leaderboardOpen) loadLeaderboard(true);
-  }, [leaderboardOpen, loadLeaderboard]);
-
-// While the leaderboard sheet is open, poll periodically so it updates without manual refresh.
-useEffect(() => {
-  if (!leaderboardOpen) return;
-  const id = window.setInterval(() => {
-    loadLeaderboard(false);
-  }, 20000);
-  return () => window.clearInterval(id);
-}, [leaderboardOpen, loadLeaderboard]);
-
-// Live countdown for "time left this week"
-useEffect(() => {
-  if (!leaderboardOpen) return;
-  if (!leaderboardMeta?.weekEndsAt) return;
-
-  const tick = () => {
-    const end = new Date(leaderboardMeta.weekEndsAt).getTime();
-    const diff = Math.max(0, end - Date.now());
-    const totalSeconds = Math.floor(diff / 1000);
-
-    const d = Math.floor(totalSeconds / 86400);
-    const h = Math.floor((totalSeconds % 86400) / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const label = d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`;
-    setWeekTimeLeft(label);
-  };
-
-  tick();
-  const id = window.setInterval(tick, 1000);
-  return () => window.clearInterval(id);
-}, [leaderboardOpen, leaderboardMeta]);
-
-
 
   const refreshOnchainBest = useCallback(async () => {
     if (!contract) return;
@@ -349,7 +271,7 @@ useEffect(() => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onDirection]);
 
-  const saveScoreAnytime = useCallback(async () => {
+  const saveScoreAnytime = useCallback(async (): Promise<boolean> => {
     if (!contract) {
       setToast({ message: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS" });
       setTimeout(() => setToast(null), 2600);
@@ -437,10 +359,35 @@ useEffect(() => {
     } catch (e: any) {
       setToast({ message: e?.message ?? "Save failed" });
       setTimeout(() => setToast(null), 3000);
+      return false;
     } finally {
       setBusy(false);
     }
   }, [contract, chainId, score, address]);
+
+  // When the game is over, we save directly from the Game Over sheet:
+  // - If the user submits & confirms: start a new game automatically.
+  // - If the user rejects/fails: keep Game Over sheet open so they can retry.
+  const saveScoreFromGameOver = useCallback(async () => {
+    // Ensure we never navigate to the manual save sheet from Game Over flow.
+    setSaveOpen(false);
+
+    const ok = await saveScoreAnytime();
+    if (ok) {
+      // Start a fresh game without overriding the "Score saved ✅" toast.
+      setGame(newGame());
+      setGameOver(false);
+      setGameOverOpen(false);
+      setSaveOpen(false);
+      setPending(null);
+      setMovesPaid(0);
+      setSpentMicro(0);
+    } else {
+      // Keep/reopen Game Over sheet so user can retry or start a new game.
+      setGameOverOpen(true);
+    }
+  }, [saveScoreAnytime]);
+
 
   const modeLabel = mode === "classic" ? "Classic" : "Pay-per-move";
 
@@ -469,9 +416,6 @@ useEffect(() => {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
-              <Trophy className="h-4 w-4" />
-            </Button>
             <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
               <Palette className="h-4 w-4" />
             </Button>
@@ -537,10 +481,7 @@ useEffect(() => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setGameOverOpen(false);
-                setSaveOpen(true);
-              }}
+              onClick={saveScoreFromGameOver}
             >
               <Save className="mr-2 h-4 w-4" />
               Save score
@@ -580,59 +521,6 @@ useEffect(() => {
         onSelect={(t) => setTheme(t)}
         onClose={() => setThemeOpen(false)}
       />
-
-      <Sheet
-        open={leaderboardOpen}
-        title="Leaderboard (Top 100)"
-        onClose={() => setLeaderboardOpen(false)}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs opacity-70 flex items-center gap-2 flex-wrap">
-            <span>This week’s best onchain scores</span>
-            {weekTimeLeft ? (
-              <span className="whitespace-nowrap rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px]">
-                ⏳ {weekTimeLeft} left
-              </span>
-            ) : null}
-          </div>
-          <Button size="sm" variant="outline" onClick={() => loadLeaderboard(true)} disabled={leaderboardLoading}>
-            {leaderboardLoading ? "Loading…" : "Refresh"}
-          </Button>
-        </div>
-
-        {leaderboardErr ? (
-          <div className="mt-3 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 text-sm">
-            <div className="font-semibold">Couldn’t load leaderboard</div>
-            <div className="mt-1 text-[11px] opacity-70">{leaderboardErr}</div>
-          </div>
-        ) : null}
-
-        <div className="mt-3 max-h-[60vh] space-y-2 overflow-auto">
-          {(leaderboard ?? []).map((e, i) => (
-            <div
-              key={e.address}
-              className="flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2"
-              title={e.address}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-6 text-xs font-semibold opacity-70">{i + 1}</div>
-                <div className="font-mono text-xs">{shorten(e.address)}</div>
-              </div>
-              <div className="text-sm font-extrabold">{e.bestScore}</div>
-            </div>
-          ))}
-          {!leaderboardLoading && (leaderboard?.length ?? 0) === 0 && !leaderboardErr ? (
-            <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 text-sm opacity-70">
-              No entries yet (or sync hasn’t run).
-            </div>
-          ) : null}
-        </div>
-
-        <div className="mt-3 text-[11px] opacity-60">
-          Weekly best score will auto update and reset after week end and take a snapshot, maybe in future Top user will be get reward.
-        </div>
-      </Sheet>
-
 
       <Sheet
         open={gameOverOpen}
