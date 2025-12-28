@@ -486,14 +486,14 @@ try {
           <div className="min-w-0">
             <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
             <div className="mt-1 flex items-center gap-2 min-w-0">
-              <Chip>
-                <span className="text-[11px] opacity-70">Mode</span>
-                <span className="font-semibold">{modeLabel}</span>
+              <Chip className="px-4 py-1.5 gap-2">
+                <span className="relative top-[1px] text-[11px] opacity-70 whitespace-nowrap">Mode</span>
+                <span className="relative top-[1px] font-semibold whitespace-nowrap">{modeLabel}</span>
               </Chip>
               {mode === "pay" ? (
-                <Chip className="flex-1 min-w-0 px-4 py-1.5 gap-2 justify-center">
-                  <span className="text-[11px] opacity-70 whitespace-nowrap">Cost</span>
-                  <span className="font-semibold truncate min-w-0">
+              <Chip className="flex-1 min-w-0 px-4 py-1.5 gap-2 justify-center">
+                <span className="relative top-[1px] text-[11px] opacity-70 whitespace-nowrap">Cost</span>
+                <span className="relative top-[1px] font-semibold truncate min-w-0">
                     {movesPaid} moves {formatMicroUsdc(spentMicro)}$
                   </span>
                 </Chip>
