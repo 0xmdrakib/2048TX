@@ -29,8 +29,7 @@ export async function getOrInitWeeklyEpoch(redis: Redis): Promise<number> {
   // set only if absent (race-safe)
   // Upstash supports options like { nx: true }
   // If another request set it first, we'll read again.
-  // @ts-expect-error options typing differs across versions
-  await redis.set(KEYS.weeklyEpoch, String(now), { nx: true });
+  await (redis as any).set(KEYS.weeklyEpoch, String(now), { nx: true });
   const after = await redis.get<number | string>(KEYS.weeklyEpoch);
   return Number(after ?? now);
 }
