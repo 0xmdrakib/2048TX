@@ -483,7 +483,12 @@ try {
 
       <div className="mx-auto w-full max-w-md">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          {/*
+            IMPORTANT: keep the left side flexible so the pay-mode chips
+            (Mode + Cost) have room to render their live values.
+            Without flex-1 here, the chip row collapses and hides the numbers.
+          */}
+          <div className="flex-1 min-w-0">
             <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
             <div className="mt-1 flex items-center gap-2 min-w-0">
               <Chip className="px-4 py-1.5 gap-2">
