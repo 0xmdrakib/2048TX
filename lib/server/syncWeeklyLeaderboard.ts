@@ -19,45 +19,55 @@ export type SyncResult = {
   epochSeconds: number;
 };
 
-async function getBlockTimestampSeconds(
-  blockNumber: bigint,
-  cache: Map<string, number>
-): Promise<number> {
-  const key = blockNumber.toString();
-  const hit = cache.get(key);
-  if (hit != null) return hit;
+async function getBlockTimestampSeconds(blockNumber: bigint, cache: Map<string, number>): Promise<number> {
+  const k = blockNumber.toString();
+  const existing = cache.get(k);
+  if (existing !== undefined) return existing;
 
   const block = await publicClient.getBlock({ blockNumber });
   const ts = Number(block.timestamp);
-  cache.set(key, ts);
+  cache.set(k, ts);
   return ts;
 }
 
 export async function syncWeeklyLeaderboard(
   redis: Redis,
-  opts?: {
-    contract?: string;
-    maxBlocks?: bigint;
-    fromBlockOverride?: bigint;
-  }
+  opts?: { maxBlocks?: bigint }
 ): Promise<SyncResult> {
-  const contract =
-    opts?.contract ??
-    (process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as string | undefined);
-
+  const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS;
   if (!contract) {
-    return { ok: false, error: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS", contract: "", fromBlock: 0n, toBlock: 0n, logsProcessed: 0, usersTouched: 0, epochSeconds: 0 };
+    return {
+      ok: false,
+      error: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS",
+      contract: "",
+      fromBlock: 0n,
+      toBlock: 0n,
+      logsProcessed: 0,
+      usersTouched: 0,
+      epochSeconds: 0,
+    };
   }
 
   const epochSeconds = await getOrInitWeeklyEpoch(redis);
-
   const latest = await publicClient.getBlockNumber();
 
-  const lastBlockStr = await redis.get<string>(KEYS.weeklyLastBlock);
-  const fromBlock =
-    opts?.fromBlockOverride ??
-    (lastBlockStr ? BigInt(lastBlockStr) + 1n : BigInt(process.env.SCORE_CONTRACT_DEPLOY_BLOCK ?? "0"));
+  const last = await redis.get<number | string>(KEYS.weeklyLastBlock);
+  // First run: start counting from "now" (latest block) by default.
+  // This matches your requirement: weekly leaderboard starts when you enable it.
+  if (last === null || last === undefined) {
+    await redis.set(KEYS.weeklyLastBlock, String(latest));
+    return {
+      ok: true,
+      contract,
+      fromBlock: latest,
+      toBlock: latest,
+      logsProcessed: 0,
+      usersTouched: 0,
+      epochSeconds,
+    };
+  }
 
+  let fromBlock = BigInt(last) + 1n;
   let toBlock = latest;
   if (opts?.maxBlocks && opts.maxBlocks > 0n) {
     const maxTo = fromBlock + opts.maxBlocks - 1n;
@@ -93,20 +103,16 @@ export async function syncWeeklyLeaderboard(
     if (logs.length) {
       const pipeline = redis.pipeline();
 
-      for (const log of logs) {
+      for (const log of logs as any[]) {
         const player = (String(log.args.player) as string).toLowerCase();
-
-        // ✅ weekly leaderboard must use submitted score (not lifetime bestScore)
         const score = Number(log.args.score);
 
-        const bn = log.blockNumber ?? 0n;
+        const bn = log.blockNumber as bigint;
         const ts = await getBlockTimestampSeconds(bn, blockTsCache);
         const weekIndex = getWeekIndex(epochSeconds, ts);
         if (weekIndex < 0) continue; // ignore events before weekly epoch
 
-        // ✅ keep weekly "best" using GT (only replace if new score is higher)
         (pipeline as any).zadd(KEYS.weeklyZ(weekIndex), { gt: true }, { score, member: player });
-
         touched.add(player);
       }
 
