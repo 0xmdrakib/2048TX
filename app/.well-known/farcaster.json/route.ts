@@ -66,7 +66,9 @@ export async function GET() {
 
       // Keep hidden during testing
       noindex: false, // recommended for staging/dev
-      webhookUrl: "https://https://2048tx.vercel.app/api/webhook",
+      // NOTE: Only include webhookUrl if you actually implement notifications.
+      // An invalid URL here can cause clients to refuse adding/pinning the mini app.
+      // webhookUrl: `${appUrl}/api/webhook`,
       // Compatibility requirements (optional, but useful)
       requiredChains: [chain],
       requiredCapabilities: ["actions.ready", "wallet.getEthereumProvider"],
