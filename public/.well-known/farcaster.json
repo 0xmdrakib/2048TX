@@ -8,27 +8,6 @@
     "version": "1",
     "name": "2048 TX",
     "homeUrl": "https://2048tx.vercel.app",
-    "iconUrl": "https://2048tx.vercel.app/icon.png",
-    "splashImageUrl": "https://2048tx.vercel.app/splash.png",
-    "splashBackgroundColor": "#0000ff",
-    "subtitle": "Onchain when you want",
-    "description": "Play classic 2048 or opt into pay-per-move micro USDC payments. Save best score onchain with a single tx.",
-    "primaryCategory": "games",
-    "tags": [
-      "games",
-      "2048",
-      "base",
-      "onchain"
-    ],
-    "heroImageUrl": "https://2048tx.vercel.app/hero.png",
-    "screenshotUrls": [
-      "https://2048tx.vercel.app/screenshots/screen1.png"
-    ],
-    "tagline": "Do tx while playing 2048",
-    "ogTitle": "2048 TX",
-    "ogDescription": "Classic 2048 plus optional onchain score plus pay per move.",
-    "ogImageUrl": "https://2048tx.vercel.app/hero.png",
-    "noindex": false,
-    "webhookUrl": "https://2048tx.vercel.app/api/webhook"
+    "iconUrl": "https://2048tx.vercel.app/icon.png"
   }
 }
