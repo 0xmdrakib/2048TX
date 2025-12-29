@@ -18,14 +18,31 @@ export const metadata: Metadata = {
 //    (and optionally fc:frame for backwards compatibility)
 // ---------------------------------------------------------------------------
 
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://2048tx.vercel.app/").replace(/\/$/, "");
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://2048tx.vercel.app").replace(/\/$/, "");
 const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad876c90810df";
 
-const EMBED = {
+// Base App installs/pins Mini Apps based on the `fc:miniapp` tag. For broad
+// compatibility we also publish an `fc:frame` tag (Farcaster Frames embed).
+const MINIAPP_EMBED = {
+  version: "1",
+  imageUrl: `${APP_URL}/hero.png`,
+  button: {
+    title: "Play 2048 TX",
+    action: {
+      type: "launch_miniapp",
+      name: "2048 TX",
+      url: APP_URL,
+      splashImageUrl: `${APP_URL}/splash.png`,
+      splashBackgroundColor: "#0000FF",
+    },
+  },
+} as const;
+
+const FRAME_EMBED = {
   version: "next",
   imageUrl: `${APP_URL}/hero.png`,
   button: {
-    title: "Open App",
+    title: "Play 2048 TX",
     action: {
       type: "launch_frame",
       name: "2048 TX",
@@ -36,7 +53,8 @@ const EMBED = {
   },
 } as const;
 
-const EMBED_CONTENT = JSON.stringify(EMBED);
+const MINIAPP_EMBED_CONTENT = JSON.stringify(MINIAPP_EMBED);
+const FRAME_EMBED_CONTENT = JSON.stringify(FRAME_EMBED);
 
 export default function RootLayout({
   children,
@@ -56,8 +74,8 @@ export default function RootLayout({
         <meta name="base:app_id" content={BASE_APP_ID} />
 
         {/* Mini App embeds for discovery/sharing */}
-        <meta name="fc:miniapp" content={EMBED_CONTENT} />
-        <meta name="fc:frame" content={EMBED_CONTENT} />
+        <meta name="fc:miniapp" content={MINIAPP_EMBED_CONTENT} />
+        <meta name="fc:frame" content={FRAME_EMBED_CONTENT} />
       </head>
       <body>{children}</body>
     </html>
