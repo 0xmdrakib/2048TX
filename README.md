@@ -1,4 +1,4 @@
-Just lunched my new and 7th @base mini app: 2048 TX 🧩🎮
+Just lunched my new and 7th https://x.com/base mini app: 2048 TX 🧩🎮
 
 I built a 2048 game where gameplay can optionally trigger real onchain activity:
 
@@ -10,5 +10,3 @@ I built a 2048 game where gameplay can optionally trigger real onchain activity:
 🎯 Goal: make “fun” a reason to generate meaningful onchain usage — without bots or spammy UX.
 
 🔗 Open inside base mini app: https://2048tx.vercel.app
-
-I’d love feedback from the Base team. @jessepollak
