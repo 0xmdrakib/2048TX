@@ -547,6 +547,16 @@ try {
             <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
               <Trophy className="h-4 w-4" />
             </Button>
+
+<Button
+  variant="ghost"
+  size="sm"
+  onClick={() => shareCast("I just played 2048 TX")}
+  aria-label="Share"
+>
+  <Share2 className="h-4 w-4" />
+</Button>
+
             <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
               <Palette className="h-4 w-4" />
             </Button>
@@ -730,7 +740,7 @@ try {
               <Button
                 variant="outline"
                 onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
-                className="w-full mt-2"
+                className="w-full"
               >
                 Share your score
               </Button>
