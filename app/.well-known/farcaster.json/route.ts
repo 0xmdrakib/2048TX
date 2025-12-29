@@ -6,20 +6,9 @@ function stripTrailingSlash(url: string) {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
-function safeHost(url: string) {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url.replace(/^https?:\/\//, "").split("/")[0];
-  }
-}
-
 export async function GET() {
   const appUrlRaw = process.env.NEXT_PUBLIC_APP_URL ?? "https://2048tx.vercel.app/";
   const appUrl = stripTrailingSlash(appUrlRaw);
-
-  // Base mainnet default
-  const chain = process.env.NEXT_PUBLIC_REQUIRED_CHAIN ?? "eip155:8453";
 
   // Prefer env-driven accountAssociation so you can paste into Vercel env vars
   // after generating via Base Build / Warpcast manifest tools.
@@ -35,7 +24,6 @@ export async function GET() {
 
       // Identity & launch
       homeUrl: appUrl,
-      canonicalDomain: safeHost(appUrl), // optional, but good practice per Farcaster spec
 
       // Required visuals
       iconUrl: `${appUrl}/icon.png`,
@@ -66,16 +54,15 @@ export async function GET() {
 
       // Keep hidden during testing
       noindex: false, // recommended for staging/dev
-      // NOTE: Only include webhookUrl if you actually implement notifications.
-      // An invalid URL here can cause clients to refuse adding/pinning the mini app.
-      // webhookUrl: `${appUrl}/api/webhook`,
-      // Compatibility requirements (optional, but useful)
-      requiredChains: [chain],
-      requiredCapabilities: ["actions.ready", "wallet.getEthereumProvider"],
     },
   };
 
   return NextResponse.json(manifest, {
-    headers: { "Cache-Control": "public, max-age=300" },
+    headers: {
+      // Keep it fresh while you iterate; some clients cache aggressively.
+      "Cache-Control": "no-store",
+      // Some hosts fetch this from within a WebView; permissive CORS avoids weird client-side fetch failures.
+      "Access-Control-Allow-Origin": "*",
+    },
   });
 }
