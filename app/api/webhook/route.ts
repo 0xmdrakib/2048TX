@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 
+// Base / Farcaster may ping this webhook during add/pin validation and for future events.
+// We don't require any processing yet; just ACK with 200.
 export async function POST(req: Request) {
-  // You can ignore the body if you only want to clear the warning
-  // (clients may send notification tokens here). :contentReference[oaicite:2]{index=2}
+  try {
+    await req.text();
+  } catch {
+    // ignore
+  }
   return NextResponse.json({ ok: true });
 }
 
