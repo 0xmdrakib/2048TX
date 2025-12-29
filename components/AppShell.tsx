@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pay, getPaymentStatus } from "@base-org/account";
-import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
+import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2 } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -477,6 +477,48 @@ try {
 
   const modeLabel = mode === "classic" ? "Classic" : "Pay-per-move";
 
+
+
+  const shareCast = async (castText: string) => {
+    const url = (() => {
+      try {
+        const u = new URL(window.location.href);
+        u.search = "";
+        u.hash = "";
+        return u.toString();
+      } catch {
+        return window.location.href;
+      }
+    })();
+
+    // Farcaster/Base miniapp composer
+    try {
+      const { sdk } = await import("@farcaster/miniapp-sdk");
+      await sdk.actions.composeCast({ text: castText, embeds: [url] });
+      return;
+    } catch {
+      // fall back
+    }
+
+    // Native share (mobile browsers)
+    try {
+      if (navigator.share) {
+        await navigator.share({ text: `${castText}\n\n${url}` });
+        return;
+      }
+    } catch {}
+
+    // Clipboard fallback
+    try {
+      await navigator.clipboard.writeText(`${castText}\n\n${url}`);
+      setToast({ message: "Copied share text ✅" });
+      setTimeout(() => setToast(null), 1500);
+    } catch {
+      setToast({ message: "Sharing not supported here" });
+      setTimeout(() => setToast(null), 1600);
+    }
+  };
+
   return (
     <div className="min-h-screen w-full px-4 py-5">
       <Toast toast={toast} />
@@ -685,6 +727,14 @@ try {
           >
             Save score onchain
           </Button>
+              <Button
+                variant="outline"
+                onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
+                className="w-full mt-2"
+              >
+                Share your score
+              </Button>
+
           <Button variant="outline" onClick={reset} className="w-full">
             New game
           </Button>
