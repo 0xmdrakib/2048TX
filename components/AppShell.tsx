@@ -483,26 +483,21 @@ try {
 
       <div className="mx-auto w-full max-w-md">
         <div className="flex items-start justify-between gap-3">
-          {/*
-            IMPORTANT: keep the left side flexible so the pay-mode chips
-            (Mode + Cost) have room to render their live values.
-            Without flex-1 here, the chip row collapses and hides the numbers.
-          */}
           <div className="flex-1 min-w-0">
             <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
-            <div className="mt-1 flex items-center gap-2 min-w-0">
-              <Chip className="px-4 py-1.5 gap-2">
-                <span className="relative top-[1px] text-[11px] opacity-70 whitespace-nowrap">Mode</span>
-                <span className="relative top-[1px] font-semibold whitespace-nowrap">{modeLabel}</span>
+            <div className="mt-2 flex flex-wrap items-center gap-2 min-w-0">
+              <Chip>
+                <span className="text-[11px] opacity-70">Mode</span>
+                <span className="font-semibold">{modeLabel}</span>
               </Chip>
               {mode === "pay" ? (
-              <Chip className="flex-1 min-w-0 px-4 py-1.5 gap-2 justify-between overflow-hidden">
-                <span className="relative top-[1px] text-[11px] opacity-70 whitespace-nowrap">Cost</span>
-                <span className="relative top-[1px] font-semibold text-[11px] tabular-nums flex-1 min-w-0 truncate text-right">
-                    {movesPaid} moves {formatMicroUsdc(spentMicro)}$
-                  </span>
-                </Chip>
-              ) : null}
+  <Chip className="flex-1 min-w-[170px] px-4 py-1.5 overflow-hidden">
+    <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
+    <span className="font-semibold text-[12px] min-w-0 truncate relative top-[1px]">
+      {movesPaid} moves • {formatMicroUsdc(spentMicro)}$
+    </span>
+  </Chip>
+) : null}
             </div>
           </div>
 
