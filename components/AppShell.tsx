@@ -496,9 +496,9 @@ try {
                 <span className="relative top-[1px] font-semibold whitespace-nowrap">{modeLabel}</span>
               </Chip>
               {mode === "pay" ? (
-              <Chip className="flex-1 min-w-0 px-4 py-1.5 gap-2 justify-center">
+              <Chip className="flex-1 min-w-0 px-4 py-1.5 gap-2 justify-between overflow-hidden">
                 <span className="relative top-[1px] text-[11px] opacity-70 whitespace-nowrap">Cost</span>
-                <span className="relative top-[1px] font-semibold truncate min-w-0">
+                <span className="relative top-[1px] font-semibold text-[11px] tabular-nums flex-1 min-w-0 truncate text-right">
                     {movesPaid} moves {formatMicroUsdc(spentMicro)}$
                   </span>
                 </Chip>
