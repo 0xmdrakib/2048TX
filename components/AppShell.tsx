@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pay, getPaymentStatus } from "@base-org/account";
 import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2 } from "lucide-react";
 
 import Board from "./Board";
@@ -15,7 +16,6 @@ import type { ThemeId } from "@/lib/themes";
 import { formatMicroUsdc, shorten } from "@/lib/format";
 import { randomMicroUsdc } from "@/lib/randomAmount";
 import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
-import { sendUsdcTransfer } from "@/lib/usdcTransfer";
 import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
 
@@ -67,6 +67,18 @@ export default function AppShell() {
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Connected wallet highlight + rank (within Top 100 only)
+  const meOnLeaderboard = useMemo(() => {
+    if (!address) return null;
+    const a = address.toLowerCase();
+    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === a);
+    if (idx < 0) return null;
+    return {
+      rank: idx + 1,
+      bestScore: leaderboard[idx]?.bestScore ?? null,
+    };
+  }, [address, leaderboard]);
+
   const [toast, setToast] = useState<ToastState>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
@@ -76,6 +88,7 @@ export default function AppShell() {
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
   const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
+  const testnet = (process.env.NEXT_PUBLIC_TESTNET ?? "false") === "true";
 
   // SDK ready (Farcaster mini apps show splash until ready())
   useEffect(() => {
@@ -269,12 +282,6 @@ try {
         return;
       }
 
-if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
-  setToast({ message: "Invalid NEXT_PUBLIC_PAY_RECIPIENT address" });
-  setTimeout(() => setToast(null), 2400);
-  return;
-}
-
       const r = move(board, dir);
       if (!r.moved) return;
 
@@ -286,45 +293,38 @@ if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
         setBusy(true);
         setToast({ message: `Opening payment… (${amount} USDC)` });
 
-        // Send a real onchain USDC transfer via the host wallet provider.
-// This keeps the confirmation sheet inside the mini app (no keys.coinbase.com redirect).
-const p = await getEvmProvider();
-if (!p) {
-  setToast({ message: "No wallet provider found in this client." });
-  setTimeout(() => setToast(null), 2200);
-  return;
-}
-setProviderReady(true);
+        // This opens the Base Pay confirmation sheet immediately.
+        // No intermediate "Base Pay" button click.
+        const payment = await pay({ amount, to: payRecipient, testnet });
 
-const provider = p as NonNullable<typeof p>;
-await ensureChain(provider, chainId);
+        setToast({ message: "Payment sent. Waiting confirmation…" });
 
-const acct = (address ?? (await getAccount(provider)) ?? (await requestAccount(provider))) as `0x${string}`;
-setAddress(acct);
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 60_000) {
+          const res = await getPaymentStatus({ id: payment.id, testnet });
+          if (res.status === "completed") {
+            const afterSpawn = spawnRandomTile(r.board);
+            setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
+            setMovesPaid((m) => m + 1);
+            setSpentMicro((s) => s + micro);
 
-// micro is already USDC smallest units (6 decimals): 1..5 => 0.000001..0.000005 USDC
-const txHash = await sendUsdcTransfer({
-  provider,
-  from: acct,
-  to: payRecipient as `0x${string}`,
-  amountUnits: BigInt(micro),
-});
+            setToast({ message: "Move confirmed ✅" });
+            setTimeout(() => setToast(null), 1200);
 
-setToast({ message: "Tx sent. Waiting confirmation…" });
-await waitForReceipt({ provider, txHash, timeoutMs: 60_000 });
+            checkGameOver(afterSpawn);
+            return;
+          }
+          if (res.status === "failed") {
+            setToast({ message: "Payment failed" });
+            setTimeout(() => setToast(null), 2400);
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+        }
 
-const afterSpawn = spawnRandomTile(r.board);
-setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
-setMovesPaid((m) => m + 1);
-setSpentMicro((s) => s + micro);
-
-setToast({ message: "Move confirmed ✅" });
-setTimeout(() => setToast(null), 1200);
-
-checkGameOver(afterSpawn);
-return;
-
-} catch (e: any) {
+        setToast({ message: "Payment still pending. Try again in a moment." });
+        setTimeout(() => setToast(null), 3000);
+      } catch (e: any) {
         // No desync: do NOT apply move
         setToast({ message: isUserRejected(e) ? "User rejected tx" : e?.message ?? "Payment cancelled/failed" });
         setTimeout(() => setToast(null), 2500);
@@ -334,7 +334,7 @@ return;
         payLockRef.current = false;
       }
     },
-    [board, gameOver, busy, payRecipient, checkGameOver]
+    [board, gameOver, busy, payRecipient, testnet, checkGameOver]
   );
 
   const onDirection = useCallback(
@@ -688,6 +688,18 @@ try {
                 ⏳ {weekTimeLeft} left
               </span>
             ) : null}
+	            {address ? (
+	              meOnLeaderboard ? (
+	                <span className="whitespace-nowrap rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px]">
+	                  🏅 You: #{meOnLeaderboard.rank}
+                  {meOnLeaderboard.bestScore != null ? ` · ${meOnLeaderboard.bestScore}` : ""}
+	                </span>
+	              ) : (
+	                <span className="whitespace-nowrap rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px]">
+	                  You: not ranked
+	                </span>
+	              )
+	            ) : null}
           </div>
           <Button size="sm" variant="outline" onClick={() => loadLeaderboard(true)} disabled={leaderboardLoading}>
             {leaderboardLoading ? "Loading…" : "Refresh"}
@@ -702,19 +714,32 @@ try {
         ) : null}
 
         <div className="mt-3 max-h-[60vh] space-y-2 overflow-auto">
-          {(leaderboard ?? []).map((e, i) => (
-            <div
-              key={e.address}
-              className="flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2"
-              title={e.address}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-6 text-xs font-semibold opacity-70">{i + 1}</div>
-                <div className="font-mono text-xs">{shorten(e.address)}</div>
+          {(leaderboard ?? []).map((e, i) => {
+            const isMe = !!address && e.address.toLowerCase() === address.toLowerCase();
+            return (
+              <div
+                key={e.address}
+                className={
+                  "flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2 " +
+                  (isMe ? " ring-2 ring-black/10 bg-black/5" : "")
+                }
+                title={e.address}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-6 text-xs font-semibold opacity-70">{i + 1}</div>
+                  <div className="font-mono text-xs flex items-center">
+                    {shorten(e.address)}
+                    {isMe ? (
+                      <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-semibold text-black/70">
+                        You
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="text-sm font-extrabold">{e.bestScore}</div>
               </div>
-              <div className="text-sm font-extrabold">{e.bestScore}</div>
-            </div>
-          ))}
+            );
+          })}
           {!leaderboardLoading && (leaderboard?.length ?? 0) === 0 && !leaderboardErr ? (
             <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 text-sm opacity-70">
               No entries yet (or sync hasn’t run).
