@@ -57,15 +57,6 @@ export default function AppShell() {
   } | null>(null);
   const [weekTimeLeft, setWeekTimeLeft] = useState<string>("");
 
-  // Connected wallet rank inside the currently loaded Top 100 (if present)
-  const myLeaderboardRank = useMemo(() => {
-    if (!address || !leaderboard) return null;
-    const me = address.toLowerCase();
-    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === me);
-    if (idx < 0) return null;
-    return { rank: idx + 1, score: leaderboard[idx]?.bestScore ?? null };
-  }, [address, leaderboard]);
-
   const [pending, setPending] = useState<PendingMove | null>(null);
 
   const [movesPaid, setMovesPaid] = useState(0);
@@ -74,6 +65,15 @@ export default function AppShell() {
   const [providerReady, setProviderReady] = useState(false);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
+
+  // Connected wallet rank inside the currently loaded Top 100 (if present)
+  const myLeaderboardRank = useMemo(() => {
+    if (!address || !leaderboard) return null;
+    const me = address.toLowerCase();
+    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === me);
+    if (idx < 0) return null;
+    return { rank: idx + 1, score: leaderboard[idx]?.bestScore ?? null };
+  }, [address, leaderboard]);
   const [busy, setBusy] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
