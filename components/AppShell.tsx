@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { pay, getPaymentStatus } from "@base-org/account";
 import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2 } from "lucide-react";
 
 import Board from "./Board";
@@ -16,6 +15,7 @@ import type { ThemeId } from "@/lib/themes";
 import { formatMicroUsdc, shorten } from "@/lib/format";
 import { randomMicroUsdc } from "@/lib/randomAmount";
 import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
+import { sendUsdcTransfer } from "@/lib/usdcTransfer";
 import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
 
@@ -65,15 +65,6 @@ export default function AppShell() {
   const [providerReady, setProviderReady] = useState(false);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
-
-  // Connected wallet rank inside the currently loaded Top 100 (if present)
-  const myLeaderboardRank = useMemo(() => {
-    if (!address || !leaderboard) return null;
-    const me = address.toLowerCase();
-    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === me);
-    if (idx < 0) return null;
-    return { rank: idx + 1, score: leaderboard[idx]?.bestScore ?? null };
-  }, [address, leaderboard]);
   const [busy, setBusy] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
@@ -85,7 +76,6 @@ export default function AppShell() {
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
   const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
-  const testnet = (process.env.NEXT_PUBLIC_TESTNET ?? "false") === "true";
 
   // SDK ready (Farcaster mini apps show splash until ready())
   useEffect(() => {
@@ -279,6 +269,12 @@ try {
         return;
       }
 
+if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
+  setToast({ message: "Invalid NEXT_PUBLIC_PAY_RECIPIENT address" });
+  setTimeout(() => setToast(null), 2400);
+  return;
+}
+
       const r = move(board, dir);
       if (!r.moved) return;
 
@@ -290,38 +286,45 @@ try {
         setBusy(true);
         setToast({ message: `Opening payment… (${amount} USDC)` });
 
-        // This opens the Base Pay confirmation sheet immediately.
-        // No intermediate "Base Pay" button click.
-        const payment = await pay({ amount, to: payRecipient, testnet });
+        // Send a real onchain USDC transfer via the host wallet provider.
+// This keeps the confirmation sheet inside the mini app (no keys.coinbase.com redirect).
+const p = await getEvmProvider();
+if (!p) {
+  setToast({ message: "No wallet provider found in this client." });
+  setTimeout(() => setToast(null), 2200);
+  return;
+}
+setProviderReady(true);
 
-        setToast({ message: "Payment sent. Waiting confirmation…" });
+const provider = p as NonNullable<typeof p>;
+await ensureChain(provider, chainId);
 
-        const startedAt = Date.now();
-        while (Date.now() - startedAt < 60_000) {
-          const res = await getPaymentStatus({ id: payment.id, testnet });
-          if (res.status === "completed") {
-            const afterSpawn = spawnRandomTile(r.board);
-            setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
-            setMovesPaid((m) => m + 1);
-            setSpentMicro((s) => s + micro);
+const acct = (address ?? (await getAccount(provider)) ?? (await requestAccount(provider))) as `0x${string}`;
+setAddress(acct);
 
-            setToast({ message: "Move confirmed ✅" });
-            setTimeout(() => setToast(null), 1200);
+// micro is already USDC smallest units (6 decimals): 1..5 => 0.000001..0.000005 USDC
+const txHash = await sendUsdcTransfer({
+  provider,
+  from: acct,
+  to: payRecipient as `0x${string}`,
+  amountUnits: BigInt(micro),
+});
 
-            checkGameOver(afterSpawn);
-            return;
-          }
-          if (res.status === "failed") {
-            setToast({ message: "Payment failed" });
-            setTimeout(() => setToast(null), 2400);
-            return;
-          }
-          await new Promise((r) => setTimeout(r, 1000));
-        }
+setToast({ message: "Tx sent. Waiting confirmation…" });
+await waitForReceipt({ provider, txHash, timeoutMs: 60_000 });
 
-        setToast({ message: "Payment still pending. Try again in a moment." });
-        setTimeout(() => setToast(null), 3000);
-      } catch (e: any) {
+const afterSpawn = spawnRandomTile(r.board);
+setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
+setMovesPaid((m) => m + 1);
+setSpentMicro((s) => s + micro);
+
+setToast({ message: "Move confirmed ✅" });
+setTimeout(() => setToast(null), 1200);
+
+checkGameOver(afterSpawn);
+return;
+
+} catch (e: any) {
         // No desync: do NOT apply move
         setToast({ message: isUserRejected(e) ? "User rejected tx" : e?.message ?? "Payment cancelled/failed" });
         setTimeout(() => setToast(null), 2500);
@@ -331,7 +334,7 @@ try {
         payLockRef.current = false;
       }
     },
-    [board, gameOver, busy, payRecipient, testnet, checkGameOver]
+    [board, gameOver, busy, payRecipient, checkGameOver]
   );
 
   const onDirection = useCallback(
@@ -685,11 +688,6 @@ try {
                 ⏳ {weekTimeLeft} left
               </span>
             ) : null}
-            {address ? (
-              <span className="whitespace-nowrap rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px]">
-                {myLeaderboardRank ? `Your rank: #${myLeaderboardRank.rank}` : "Your rank: >100"}
-              </span>
-            ) : null}
           </div>
           <Button size="sm" variant="outline" onClick={() => loadLeaderboard(true)} disabled={leaderboardLoading}>
             {leaderboardLoading ? "Loading…" : "Refresh"}
@@ -707,39 +705,14 @@ try {
           {(leaderboard ?? []).map((e, i) => (
             <div
               key={e.address}
-              className={`flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2 ${
-                address && e.address.toLowerCase() === address.toLowerCase()
-                  ? "border-black/20 bg-black/[0.06]"
-                  : ""
-              }`}
+              className="flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2"
               title={e.address}
             >
               <div className="flex items-center gap-3">
                 <div className="w-6 text-xs font-semibold opacity-70">{i + 1}</div>
-                <div
-                  className={`font-mono text-xs ${
-                    address && e.address.toLowerCase() === address.toLowerCase()
-                      ? "font-semibold"
-                      : ""
-                  }`}
-                >
-                  {shorten(e.address)}
-                </div>
-                {address && e.address.toLowerCase() === address.toLowerCase() ? (
-                  <div className="whitespace-nowrap rounded-full border border-black/10 bg-black/5 px-2 py-0.5 text-[11px] font-semibold">
-                    You
-                  </div>
-                ) : null}
+                <div className="font-mono text-xs">{shorten(e.address)}</div>
               </div>
-              <div
-                className={`text-sm font-extrabold ${
-                  address && e.address.toLowerCase() === address.toLowerCase()
-                    ? "text-black"
-                    : ""
-                }`}
-              >
-                {e.bestScore}
-              </div>
+              <div className="text-sm font-extrabold">{e.bestScore}</div>
             </div>
           ))}
           {!leaderboardLoading && (leaderboard?.length ?? 0) === 0 && !leaderboardErr ? (
