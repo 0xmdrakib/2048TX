@@ -77,6 +77,12 @@ export default function AppShell() {
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
   const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
 
+  const myLeaderboardRank = useMemo(() => {
+    if (!address || !leaderboard) return null;
+    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === address.toLowerCase());
+    return idx >= 0 ? idx + 1 : null;
+  }, [address, leaderboard]);
+
   // SDK ready (Farcaster mini apps show splash until ready())
   useEffect(() => {
     (async () => {
@@ -694,6 +700,25 @@ try {
           </Button>
         </div>
 
+        {address ? (
+          <div className="mt-2">
+            <Chip className="border-emerald-400/40 bg-emerald-500/10">
+              <span className="font-semibold">You</span>
+              <span className="font-mono text-[11px]">{shorten(address)}</span>
+              <span className="opacity-60">•</span>
+              <span className="font-semibold">
+                {leaderboardLoading
+                  ? "Finding rank…"
+                  : myLeaderboardRank
+                  ? `Rank #${myLeaderboardRank}`
+                  : leaderboard
+                  ? "Not in Top 100"
+                  : "—"}
+              </span>
+            </Chip>
+          </div>
+        ) : null}
+
         {leaderboardErr ? (
           <div className="mt-3 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 text-sm">
             <div className="font-semibold">Couldn’t load leaderboard</div>
@@ -702,19 +727,29 @@ try {
         ) : null}
 
         <div className="mt-3 max-h-[60vh] space-y-2 overflow-auto">
-          {(leaderboard ?? []).map((e, i) => (
-            <div
-              key={e.address}
-              className="flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2"
-              title={e.address}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-6 text-xs font-semibold opacity-70">{i + 1}</div>
-                <div className="font-mono text-xs">{shorten(e.address)}</div>
+          {(leaderboard ?? []).map((e, i) => {
+            const isMe = !!address && e.address.toLowerCase() === address.toLowerCase();
+            return (
+              <div
+                key={e.address}
+                className={`flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2 ${isMe ? "border-emerald-400/40 bg-emerald-500/10" : ""}`}
+                title={e.address}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-6 text-xs font-semibold opacity-70">{i + 1}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="font-mono text-xs">{shorten(e.address)}</div>
+                    {isMe ? (
+                      <span className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold">
+                        You
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="text-sm font-extrabold">{e.bestScore}</div>
               </div>
-              <div className="text-sm font-extrabold">{e.bestScore}</div>
-            </div>
-          ))}
+            );
+          })}
           {!leaderboardLoading && (leaderboard?.length ?? 0) === 0 && !leaderboardErr ? (
             <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 text-sm opacity-70">
               No entries yet (or sync hasn’t run).
