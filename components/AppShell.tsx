@@ -648,7 +648,7 @@ try {
           </div>
         </div>
 
-        <div className="mt-4" ref={boardRef}>
+        <div className="mt-4 touch-none overscroll-none" ref={boardRef}>
           <Board board={board} theme={theme} isLocked={busy} />
         </div>
 
@@ -669,9 +669,11 @@ try {
 
         {/* Game Over UI is shown as a Sheet (bottom drawer), not an inline card. */}
 
-        <div className="mt-6 text-center text-xs text-[var(--muted)]">
-          Swipe or use arrows. In Pay mode, the move commits only after a successful Base Pay payment.
-        </div>
+        {mode === "classic" ? (
+          <div className="mt-6 text-center text-xs text-[var(--muted)]">
+            Swipe or use arrows to play the game. In Pay mode, the every move commits only after a successful payment.
+          </div>
+        ) : null}
       </div>
 
       <ThemePicker
