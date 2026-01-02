@@ -69,13 +69,14 @@ export default function AppShell() {
 
   // Connected wallet highlight + rank (within Top 100 only)
   const meOnLeaderboard = useMemo(() => {
-    if (!address) return null;
+    if (!address || !leaderboard) return null;
     const a = address.toLowerCase();
     const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === a);
     if (idx < 0) return null;
+    const row = leaderboard[idx];
     return {
       rank: idx + 1,
-      bestScore: leaderboard[idx]?.bestScore ?? null,
+      bestScore: row?.bestScore ?? null,
     };
   }, [address, leaderboard]);
 
