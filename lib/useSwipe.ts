@@ -44,11 +44,21 @@ export function useSwipe(opts: {
       }
     };
 
+    // Prevent the page from scrolling while the user is swiping on the game board.
+    // Note: to make preventDefault() work in modern mobile browsers, the listener
+    // must be registered with { passive: false }.
+    const onTouchMove = (e: TouchEvent) => {
+      if (!active) return;
+      e.preventDefault();
+    };
+
     el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd, { passive: true });
 
     return () => {
       el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
     };
   }, [opts.enabled, opts.element, opts.onDirection]);
