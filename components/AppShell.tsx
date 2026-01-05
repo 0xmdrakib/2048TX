@@ -72,6 +72,8 @@ export default function AppShell() {
   const boardRef = useRef<HTMLDivElement>(null);
   // Prevent rapid multi-swipes from stacking multiple payments before React state updates.
   const payLockRef = useRef(false);
+  // When the weekly countdown hits 00:00:00, we call a server endpoint once to snapshot the finished week.
+  const rolloverTriggeredForWeekRef = useRef<number | null>(null);
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
@@ -168,6 +170,23 @@ useEffect(() => {
     const diff = Math.max(0, end - Date.now());
     const totalSeconds = Math.floor(diff / 1000);
 
+    // If the timer hits zero while the sheet is open, ask the server to finalize snapshots
+    // and immediately start showing the new week. This is the closest you can get to an
+    // "exact rollover" without any background scheduler.
+    if (totalSeconds === 0 && rolloverTriggeredForWeekRef.current !== leaderboardMeta.weekIndex) {
+      rolloverTriggeredForWeekRef.current = leaderboardMeta.weekIndex;
+      void (async () => {
+        try {
+          await fetch("/api/weekly/rollover", { method: "POST" });
+        } catch {
+          // Non-fatal: next request will still finalize the week.
+        } finally {
+          // Reload leaderboard meta so UI flips to the new week quickly.
+          loadLeaderboard(false);
+        }
+      })();
+    }
+
     const d = Math.floor(totalSeconds / 86400);
     const h = Math.floor((totalSeconds % 86400) / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
@@ -181,7 +200,7 @@ useEffect(() => {
   tick();
   const id = window.setInterval(tick, 1000);
   return () => window.clearInterval(id);
-}, [leaderboardOpen, leaderboardMeta]);
+}, [leaderboardOpen, leaderboardMeta, loadLeaderboard]);
 
 
 
@@ -440,6 +459,20 @@ try {
 
       // Whichever confirms first: receipt OR onchain state change.
       await Promise.race(racers);
+
+      // Push-based leaderboard update (no cron/QStash needed).
+      // This is non-blocking; the tx is already confirmed onchain.
+      void (async () => {
+        try {
+          await fetch("/api/leaderboard", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ txHash }),
+          });
+        } catch {
+          // Non-fatal: the onchain tx succeeded even if this call fails.
+        }
+      })();
 
       // Close the sheet immediately after the tx is confirmed.
       // Do NOT block UX on a follow-up read, because some embedded providers
