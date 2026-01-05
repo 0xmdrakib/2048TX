@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decodeEventLog } from "viem";
+import type { Redis } from "@upstash/redis";
 
 import { KEYS, getRedis } from "@/lib/server/leaderboard/store";
 import {
@@ -28,7 +29,7 @@ function isTxHash(x: string) {
   return /^0x[0-9a-fA-F]{64}$/.test(x);
 }
 
-async function setMaxBlock(redis: any, key: string, bn: bigint) {
+async function setMaxBlock(redis: Redis, key: string, bn: bigint) {
   const cur = await redis.get<number | string>(key);
   const curBn = cur !== null && cur !== undefined ? BigInt(cur) : 0n;
   if (bn > curBn) await redis.set(key, bn.toString());
