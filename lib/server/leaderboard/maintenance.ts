@@ -133,11 +133,11 @@ export async function snapshotCompletedWeeks(redis: Redis): Promise<SnapshotResu
       string | number
     >;
 
-    const top100: Array<{ address: string; bestScore: number }> = [];
+    const top100: Array<{ address: string; score: number }> = [];
     for (let i = 0; i < raw.length; i += 2) {
       const address = String(raw[i] ?? "");
-      const bestScore = Number(raw[i + 1] ?? 0);
-      if (address) top100.push({ address, bestScore });
+      const score = Number(raw[i + 1] ?? 0);
+      if (address) top100.push({ address, score });
     }
 
     const { start, end } = getWeekBounds(epochSeconds, w);
@@ -156,6 +156,10 @@ export async function snapshotCompletedWeeks(redis: Redis): Promise<SnapshotResu
     await redis.set(key, payload);
     await redis.lpush(KEYS.weeklySnapshots, key);
     await redis.set(KEYS.weeklyLastSnapWeek, String(w));
+
+    // Keep Redis clean: once snapshotted, we don't need to keep the old week's ZSET.
+    // The snapshot contains the Top 100 already.
+    await redis.del(KEYS.weeklyZ(w));
 
     snapped.push(w);
   }
