@@ -2,7 +2,15 @@ import "server-only";
 import type { Redis } from "@upstash/redis";
 import { KEYS } from "./store";
 
-const WEEK_SECONDS = 7 * 24 * 60 * 60;
+// Default is 7 days.
+// For a fast test rollout, set WEEK_SECONDS=120 (2 minutes) in your env.
+const DEFAULT_WEEK_SECONDS = 7 * 24 * 60 * 60;
+const WEEK_SECONDS = (() => {
+  const raw = Number(process.env.WEEK_SECONDS ?? DEFAULT_WEEK_SECONDS);
+  // Safety: avoid 0/NaN or extremely tiny values that would spam keys.
+  if (!Number.isFinite(raw) || raw < 60) return DEFAULT_WEEK_SECONDS;
+  return Math.floor(raw);
+})();
 
 export type WeekMeta = {
   epochSeconds: number;
