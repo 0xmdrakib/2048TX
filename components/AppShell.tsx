@@ -148,7 +148,9 @@ export default function AppShell() {
 
 
   useEffect(() => {
-    if (leaderboardOpen) loadLeaderboard(true);
+    // Fast open: do NOT force onchain refresh here.
+    // Push-based ingestion keeps it fresh, and the Refresh button is available for manual repair.
+    if (leaderboardOpen) loadLeaderboard(false);
   }, [leaderboardOpen, loadLeaderboard]);
 
 // While the leaderboard sheet is open, poll periodically so it updates without manual refresh.
@@ -427,6 +429,35 @@ try {
       const txHash = await submitScore({ provider, contract, from: acct, score });
       setToast({ message: "Saving score onchain…" });
 
+      // Server-side confirmation + ingestion (more reliable than some embedded wallet providers).
+      // This also keeps the weekly leaderboard updated without any cron.
+      const serverConfirmPromise = (async () => {
+        const started = Date.now();
+        while (Date.now() - started < 120_000) {
+          try {
+            const res = await fetch("/api/leaderboard", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ txHash }),
+            });
+
+            if (res.status === 202) {
+              await new Promise((r) => setTimeout(r, 1500));
+              continue;
+            }
+
+            const j: any = await res.json().catch(() => null);
+            if (res.ok && j?.ok) return j;
+
+            throw new Error(j?.error ?? j?.message ?? "Server could not ingest leaderboard update");
+          } catch {
+            // retry
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+        throw new Error("Timed out confirming score save.");
+      })();
+
       const receiptPromise = (async () => {
         const receipt = await waitForReceipt({ provider, txHash, timeoutMs: 120_000 });
         const status = (receipt as any)?.status;
@@ -436,7 +467,7 @@ try {
         return receipt;
       })();
 
-      const racers: Promise<any>[] = [receiptPromise];
+      const racers: Promise<any>[] = [receiptPromise, serverConfirmPromise];
 
       // Fallback confirmation: if we can observe submissions incrementing, we know
       // the transaction was mined (this works for both "best" and non-best scores).
@@ -459,20 +490,6 @@ try {
 
       // Whichever confirms first: receipt OR onchain state change.
       await Promise.race(racers);
-
-      // Push-based leaderboard update (no cron/QStash needed).
-      // This is non-blocking; the tx is already confirmed onchain.
-      void (async () => {
-        try {
-          await fetch("/api/leaderboard", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ txHash }),
-          });
-        } catch {
-          // Non-fatal: the onchain tx succeeded even if this call fails.
-        }
-      })();
 
       // Close the sheet immediately after the tx is confirmed.
       // Do NOT block UX on a follow-up read, because some embedded providers
