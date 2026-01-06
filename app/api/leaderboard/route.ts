@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
 
   // Decode the ScoreSubmitted event from this tx
   let player: string | null = null;
-  let bestScore: number | null = null;
+  let score: number | null = null;
 
   for (const log of receipt.logs || []) {
     if (!log?.address) continue;
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
       if (decoded.eventName === "ScoreSubmitted") {
         const args: any = decoded.args;
         player = String(args.player);
-        bestScore = Number(args.bestScore);
+        score = Number(args.score);
         break;
       }
     } catch {
@@ -193,7 +193,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!player || bestScore == null) {
+  if (!player || score == null) {
     return json({ ok: false, error: "No ScoreSubmitted event found in tx" }, { status: 400 });
   }
 
@@ -208,8 +208,9 @@ export async function POST(req: NextRequest) {
 
   // Update weekly + all-time leaderboards
   const pipe = redis.pipeline();
-  pipe.zadd(KEYS.weeklyZ(weekIndex), { score: bestScore, member });
-  pipe.zadd(KEYS.z, { score: bestScore, member });
+  pipe.zadd(KEYS.weeklyZ(weekIndex), { gt: true }, { score, member });
+  // Optional: keep an all-time board if you need it later
+  // pipe.zadd(KEYS.z, { gt: true }, { score, member });
   await pipe.exec();
 
   // Maintain last processed blocks (useful for optional repair sync)
@@ -247,7 +248,7 @@ export async function POST(req: NextRequest) {
     contract,
     weekIndex,
     player: member,
-    bestScore,
+    score,
     txHash,
     blockNumber: receipt.blockNumber?.toString?.() ?? String(receipt.blockNumber),
     blockTimestamp: tsSeconds,
