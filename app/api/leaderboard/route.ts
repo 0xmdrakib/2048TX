@@ -148,13 +148,6 @@ export async function POST(req: NextRequest) {
   const txHash = String(body?.txHash ?? "");
   if (!isTxHash(txHash)) return json({ ok: false, error: "Invalid txHash" }, { status: 400 });
 
-  // Idempotency: avoid repeated RPC work for the same txHash
-  const ingestedKey = `lb:ingest:tx:${txHash}`;
-  const already = await redis.get<number | string>(ingestedKey);
-  if (already) {
-    return json({ ok: true, mode: "push", status: "already_ingested", txHash });
-  }
-
   let receipt: any;
   try {
     receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
@@ -216,13 +209,6 @@ export async function POST(req: NextRequest) {
   // Maintain last processed blocks (useful for optional repair sync)
   await setMaxBlock(redis, KEYS.weeklyLastBlock, receipt.blockNumber);
   await setMaxBlock(redis, KEYS.lastBlock, receipt.blockNumber);
-
-  // Mark this tx as ingested (30 days)
-  try {
-    await (redis as any).set(ingestedKey, "1", { ex: 60 * 60 * 24 * 30 });
-  } catch {
-    // ignore
-  }
 
   // Finalize any weeks that ended since last time
   const snapshots = await snapshotCompletedWeeks(redis);
