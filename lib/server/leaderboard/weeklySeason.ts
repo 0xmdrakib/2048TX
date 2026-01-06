@@ -2,7 +2,7 @@ import "server-only";
 import type { Redis } from "@upstash/redis";
 import { KEYS } from "./store";
 
-const WEEK_SECONDS = 2 * 60;
+const WEEK_SECONDS = 7 * 24 * 60 * 60;
 
 export type WeekMeta = {
   epochSeconds: number;
