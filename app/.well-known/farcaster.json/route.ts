@@ -25,6 +25,9 @@ export async function GET() {
       // Identity & launch
       homeUrl: appUrl,
 
+      // Notifications (webhook receiver)
+      webhookUrl: `${appUrl}/api/webhook`,
+
       // Required visuals
       iconUrl: `${appUrl}/icon.png`,
       splashImageUrl: `${appUrl}/splash.png`,
