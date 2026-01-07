@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
   // Pull up to N due deliveries. Keep it small so a single run never times out.
   const due = (await redis.zrange(NOTIF_KEYS.dueZ, 0, now, {
     byScore: true,
+    offset: 0,
     count: 200,
   })) as string[];
 
