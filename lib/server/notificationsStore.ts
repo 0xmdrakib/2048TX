@@ -32,24 +32,40 @@ function member(fid: number, appFid: number) {
 
 function parseCadenceHours(raw: string | undefined): CadenceHours {
   const v = (raw ?? "12").trim();
-
-  // ✅ test mode
   if (v === "1") return 1;
-
-  // ✅ prod modes
   if (v === "6") return 6;
   if (v === "12") return 12;
-
-  // Safe fallback
   return 12;
 }
 
 export function getDefaultCadenceHours(): CadenceHours {
+  // IMPORTANT: env name is NOTIF_CADENCE_HOURS (plural)
   return parseCadenceHours(process.env.NOTIF_CADENCE_HOURS);
 }
 
 function computeNextSendAt(nowSec: number, cadenceHours: CadenceHours) {
   return nowSec + cadenceHours * 3600;
+}
+
+/**
+ * If you change NOTIF_CADENCE_HOURS after users have subscribed,
+ * their stored records might still contain the old cadence/nextSendAt.
+ * This normalizes the cadence to the current env on read, and updates dueZ.
+ */
+async function normalizeCadence(redis: Redis, rec: NotifRecord) {
+  const envCadence = getDefaultCadenceHours();
+  if (rec.cadenceHours === envCadence) return rec;
+
+  const now = Math.floor(Date.now() / 1000);
+  rec.cadenceHours = envCadence;
+  rec.nextSendAt = rec.lastSentAt
+    ? rec.lastSentAt + envCadence * 3600
+    : computeNextSendAt(now, envCadence);
+
+  await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
+  await redis.zadd(NOTIF_KEYS.dueZ, { score: rec.nextSendAt, member: member(rec.fid, rec.appFid) });
+
+  return rec;
 }
 
 export async function upsertNotificationDetails(
@@ -86,18 +102,16 @@ export async function loadNotification(redis: Redis, fid: number, appFid: number
   try {
     const rec = JSON.parse(raw) as NotifRecord;
 
-    // Basic sanity checks
     if (!rec || typeof rec !== "object") return null;
     if (typeof rec.fid !== "number" || typeof rec.appFid !== "number") return null;
     if (typeof rec.url !== "string" || typeof rec.token !== "string") return null;
     if (typeof rec.nextSendAt !== "number") return null;
 
-    // Ensure cadence is one of our allowed values; otherwise fallback to env default.
     if (rec.cadenceHours !== 1 && rec.cadenceHours !== 6 && rec.cadenceHours !== 12) {
       rec.cadenceHours = getDefaultCadenceHours();
     }
 
-    return rec;
+    return await normalizeCadence(redis, rec);
   } catch {
     return null;
   }
