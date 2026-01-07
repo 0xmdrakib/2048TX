@@ -8,6 +8,7 @@
     "version": "1",
     "name": "2048 TX",
     "homeUrl": "https://2048tx.vercel.app",
-    "iconUrl": "https://2048tx.vercel.app/icon.png"
+    "iconUrl": "https://2048tx.vercel.app/icon.png",
+    "webhookUrl": "https://2048tx.vercel.app/api/webhook"
   }
 }
