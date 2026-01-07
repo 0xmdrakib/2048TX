@@ -121,5 +121,6 @@ export async function GET(req: NextRequest) {
     await reschedule(redis, rec, now + 15 * 60);
   }
 
-  return NextResponse.json({ ok: true, due: due.length, sent, invalid, rateLimited });
+  const registered = await redis.zcard(NOTIF_KEYS.dueZ);
+  return NextResponse.json({ ok: true, due: due.length, registered, sent, invalid, rateLimited });
 }
