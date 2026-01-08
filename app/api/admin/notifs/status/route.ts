@@ -17,14 +17,7 @@ export async function GET(req: Request) {
 
   const redis = getRedis();
   if (!redis) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Redis not configured" }, { status: 500 });
   }
   const now = Math.floor(Date.now() / 1000);
 
