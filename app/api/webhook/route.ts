@@ -73,9 +73,8 @@ export async function POST(req: NextRequest) {
       case "notifications_enabled": {
         const details = event.notificationDetails;
         if (details?.token && details?.url) {
-          await upsertNotificationDetails(redis, {
-            fid,
-            appFid,
+          // Persist token + URL and schedule next send.
+          await upsertNotificationDetails(redis, fid, appFid, {
             token: details.token,
             url: details.url,
           });
