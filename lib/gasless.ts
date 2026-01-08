@@ -9,6 +9,11 @@ import type { EIP1193Provider } from './types';
  */
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+type HexHash = `0x${string}`;
+function isHexHash(value: unknown): value is HexHash {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
 
 export type WalletCall = {
   to: `0x${string}`;
@@ -81,11 +86,11 @@ async function waitForTxHash(
     })) as any;
 
     const receipts = status?.receipts ?? status?.result?.receipts;
-    const txHash =
+    const rawTxHash =
       receipts?.[0]?.transactionHash ??
       receipts?.[0]?.transactionHash?.hash;
 
-    if (typeof txHash === 'string' && txHash.startsWith('0x')) return txHash;
+    if (isHexHash(rawTxHash)) return rawTxHash;
 
     await sleep(800);
   }
