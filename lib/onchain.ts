@@ -2,7 +2,6 @@ import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 import type { EIP1193Provider } from "./types";
 import { supportsPaymaster, sendSponsoredCallsAndGetTxHash } from "./gasless";
 
-
 const abi = parseAbi([
   "function best(address) view returns (uint32)",
   "function submissions(address) view returns (uint64)",
