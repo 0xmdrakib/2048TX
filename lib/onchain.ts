@@ -124,7 +124,7 @@ export async function submitScore(params: {
     args: [params.score],
   });
 
-  // Try sponsored path first (only if wallet supports it)
+  // 1) Try sponsored path using the current provider.
   try {
     const chainIdHex = (await params.provider.request({
       method: "eth_chainId",
@@ -146,10 +146,50 @@ export async function submitScore(params: {
       });
     }
   } catch {
-    // If anything fails here, we fall back to normal tx below.
+    // ignore and try fallbacks
   }
 
-  // Fallback: normal EOA-style tx
+  // 2) If we're inside a Base App / wallet webview, there is often a second provider on window.ethereum
+  // that supports paymasterService + wallet_sendCalls. We only use it if it already has the same account
+  // (so we don't trigger an extra connect prompt).
+  try {
+    if (typeof window !== "undefined") {
+      const eth = (window as any)?.ethereum as EIP1193Provider | undefined;
+
+      if (eth && eth !== params.provider && typeof (eth as any).request === "function") {
+        const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
+        const hasSameAccount =
+          Array.isArray(accounts) &&
+          accounts.some((a) => a?.toLowerCase?.() === params.from.toLowerCase());
+
+        if (hasSameAccount) {
+          const chainIdHex = (await eth.request({
+            method: "eth_chainId",
+            params: [],
+          })) as `0x${string}`;
+
+          const canSponsor = await supportsPaymaster({
+            provider: eth,
+            from: params.from,
+            chainIdHex,
+          });
+
+          if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
+            return await sendSponsoredCallsAndGetTxHash({
+              provider: eth,
+              chainIdHex,
+              from: params.from,
+              calls: [{ to: params.contract, value: "0x0", data }],
+            });
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore and fall back to normal tx
+  }
+
+  // 3) Fallback: normal EOA-style tx (will cost gas)
   const txHash = (await params.provider.request({
     method: "eth_sendTransaction",
     params: [
