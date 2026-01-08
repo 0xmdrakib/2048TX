@@ -31,14 +31,7 @@ export async function GET(req: Request) {
 
   const redis = getRedis();
   if (!redis) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Redis not configured" }, { status: 500 });
   }
   const now = Math.floor(Date.now() / 1000);
 
@@ -63,7 +56,8 @@ export async function GET(req: Request) {
       continue;
     }
 
-    const rec = await loadNotification(redis, fid, appFid);
+    // loadNotification expects a memberId string like "fid:appFid"
+    const rec = await loadNotification(redis, String(member));
     if (!rec) {
       // Stale ZSET member
       await redis.zrem(NOTIF_KEYS.dueZ, String(member));
@@ -163,7 +157,7 @@ export async function GET(req: Request) {
     }
 
     if (rateLimitedTokens.includes(rec.token)) {
-      await markAttempt(redis, rec, { result: "rateLimited", response: summary });
+      await markAttempt(redis, rec, { result: "rate_limited", response: summary });
       await reschedule(redis, rec, now + 15 * 60);
       rateLimited++;
       continue;
