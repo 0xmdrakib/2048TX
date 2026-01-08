@@ -11,23 +11,36 @@ import type { EIP1193Provider } from "./types";
 
 let cachedBaseAccountProvider: EIP1193Provider | null = null;
 
-async function getBaseAccountAddress(): Promise<`0x${string}` | null> {
-  // Base Account SDK doesn't always surface the Smart Account address via `eth_accounts`.
-  // The canonical way is `getCryptoKeyAccount()` (Base docs).
+// Base App's Farcaster client FID (used for client detection in Base docs)
+// See: https://docs.base.org/mini-apps/troubleshooting/base-app-compatibility
+const BASE_APP_CLIENT_FID = 309857;
+
+/**
+ * Returns true when running inside the Base App (not just any Farcaster client).
+ *
+ * This is important because Base Account + Paymaster are Base App features.
+ * In other Farcaster clients, attempting to use Base Account SDK can break the UX.
+ */
+export async function isBaseAppClient(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
   try {
-    const { getCryptoKeyAccount } = await import("@base-org/account");
-    const cryptoAccount = await getCryptoKeyAccount();
-    const addr = cryptoAccount?.account?.address;
-    return addr ? (addr as `0x${string}`) : null;
+    const { sdk } = await import("@farcaster/miniapp-sdk");
+    const inMiniApp = await sdk.isInMiniApp();
+    if (!inMiniApp) return false;
+    const ctx: any = await sdk.context;
+    return ctx?.client?.clientFid === BASE_APP_CLIENT_FID;
   } catch {
-    return null;
+    return false;
   }
 }
-
 
 async function getBaseAccountProvider(): Promise<EIP1193Provider | null> {
   if (typeof window === "undefined") return null;
   if (cachedBaseAccountProvider) return cachedBaseAccountProvider;
+
+  // IMPORTANT: Only try Base Account SDK inside the Base App.
+  // In other Farcaster clients this can cause broken connect flows.
+  if (!(await isBaseAppClient())) return null;
 
   try {
     // Lazy import to keep SSR safe.
@@ -137,69 +150,14 @@ export async function ensureChain(provider: EIP1193Provider, chainIdDec: number)
   }
 }
 
-export async function getAccount(provider: EIP1193Provider) {
-  // 1) Always try to connect via Coinbase/Base Account `wallet_connect` first.
-  //    This is the most reliable way to get the Smart Wallet address used for `wallet_sendCalls`. 
-  const desiredChainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 8453);
-  const desiredChainIdHex = `0x${desiredChainId.toString(16)}`;
-
-  // Best effort: switch chain (ignore if wallet doesn't support it)
-  try {
-    const chainIdHex = (await provider.request({ method: "eth_chainId" })) as string;
-    if (chainIdHex?.toLowerCase() !== desiredChainIdHex.toLowerCase()) {
-      await provider.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: desiredChainIdHex }],
-      });
-    }
-  } catch {
-    // ignore
-  }
-
-  // Try Base Account SDK (works inside Base App + Coinbase Smart Wallet contexts)
-  const baseAccountAddress = await getBaseAccountAddress();
-  if (baseAccountAddress) return baseAccountAddress;
-
-  // Try Coinbase Wallet / Base Account connection method
-  try {
-    const res = (await provider.request({
-      method: "wallet_connect",
-      params: [{}],
-    })) as any;
-
-    const addr =
-      res?.accounts?.[0]?.address ??
-      res?.result?.accounts?.[0]?.address ??
-      (Array.isArray(res) ? res?.[0] : undefined);
-
-    if (typeof addr === "string" && addr.startsWith("0x")) return addr as `0x${string}`;
-  } catch {
-    // ignore (other wallets won't support wallet_connect)
-  }
-
-  // Fallback: standard EIP-1193 connect
-  const accounts = (await provider.request({
-    method: "eth_requestAccounts",
-  })) as string[];
-
-  if (!accounts?.[0]) throw new Error("No accounts returned from eth_requestAccounts");
-  return accounts[0] as `0x${string}`;
+export async function getAccount(provider: EIP1193Provider): Promise<`0x${string}` | null> {
+  const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
+  if (accounts && accounts[0]) return accounts[0] as `0x${string}`;
+  return null;
 }
 
 export async function requestAccount(provider: EIP1193Provider): Promise<`0x${string}`> {
-  // Base Account: get the Smart Account address via getCryptoKeyAccount()
-  if (provider === cachedBaseAccountProvider) {
-    const addr = await getBaseAccountAddress();
-    if (addr) return addr;
-  }
-
   const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
-  // Some Base Account flows still return an EOA address here; re-check for Smart Account.
-  if (provider === cachedBaseAccountProvider) {
-    const addr = await getBaseAccountAddress();
-    if (addr) return addr;
-  }
-
   if (!accounts?.[0]) throw new Error("No account returned.");
   return accounts[0] as `0x${string}`;
 }
