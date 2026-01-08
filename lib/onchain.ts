@@ -1,5 +1,7 @@
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 import type { EIP1193Provider } from "./types";
+import { supportsPaymaster, sendSponsoredCallsAndGetTxHash } from "./gasless";
+
 
 const abi = parseAbi([
   "function best(address) view returns (uint32)",
@@ -123,6 +125,32 @@ export async function submitScore(params: {
     args: [params.score],
   });
 
+  // Try sponsored path first (only if wallet supports it)
+  try {
+    const chainIdHex = (await params.provider.request({
+      method: "eth_chainId",
+      params: [],
+    })) as `0x${string}`;
+
+    const canSponsor = await supportsPaymaster({
+      provider: params.provider,
+      from: params.from,
+      chainIdHex,
+    });
+
+    if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
+      return await sendSponsoredCallsAndGetTxHash({
+        provider: params.provider,
+        chainIdHex,
+        from: params.from,
+        calls: [{ to: params.contract, value: "0x0", data }],
+      });
+    }
+  } catch {
+    // If anything fails here, we fall back to normal tx below.
+  }
+
+  // Fallback: normal EOA-style tx
   const txHash = (await params.provider.request({
     method: "eth_sendTransaction",
     params: [
@@ -137,6 +165,7 @@ export async function submitScore(params: {
 
   return txHash;
 }
+
 
 export async function waitForReceipt(params: {
   provider: EIP1193Provider;
