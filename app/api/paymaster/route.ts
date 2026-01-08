@@ -1,14 +1,39 @@
+export async function OPTIONS() {
+  // Some environments may preflight (especially when the wallet runs in a stricter webview).
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "POST,OPTIONS",
+      "access-control-allow-headers": "content-type",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+const ALLOWED_BUNDLER_METHODS = new Set([
+  // Common ERC-4337 bundler methods (the CDP endpoint is "Paymaster & Bundler").
+  "eth_supportedEntryPoints",
+  "eth_sendUserOperation",
+  "eth_estimateUserOperationGas",
+  "eth_getUserOperationReceipt",
+  "eth_getUserOperationByHash",
+]);
+
+function isAllowedMethod(method: string) {
+  if (method.startsWith("pm_")) return true; // ERC-7677 paymaster methods
+  if (ALLOWED_BUNDLER_METHODS.has(method)) return true;
+  return false;
+}
+
 export async function POST(req: Request) {
   const upstream = process.env.CDP_PAYMASTER_URL;
   if (!upstream) {
     return new Response("Missing CDP_PAYMASTER_URL", { status: 500 });
   }
 
-  // Read raw body (JSON-RPC)
   const bodyText = await req.text();
 
-  // Basic safety: only allow Paymaster JSON-RPC methods
-  // (tighten/loosen as needed)
   let payload: any;
   try {
     payload = JSON.parse(bodyText);
@@ -16,9 +41,14 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const method = String(payload?.method ?? "");
-  if (!method.startsWith("pm_")) {
-    return new Response("Forbidden", { status: 403 });
+  // Wallets may send JSON-RPC batch requests.
+  const requests = Array.isArray(payload) ? payload : [payload];
+
+  for (const r of requests) {
+    const method = String(r?.method ?? "");
+    if (!isAllowedMethod(method)) {
+      return new Response("Forbidden", { status: 403 });
+    }
   }
 
   const upstreamRes = await fetch(upstream, {
@@ -32,6 +62,7 @@ export async function POST(req: Request) {
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
+      "access-control-allow-origin": "*",
     },
   });
 }
