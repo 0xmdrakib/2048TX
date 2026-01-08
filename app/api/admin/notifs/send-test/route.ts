@@ -23,14 +23,7 @@ export async function GET(req: Request) {
 
   const redis = getRedis();
   if (!redis) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Redis not configured" }, { status: 500 });
   }
   const u = new URL(req.url);
   const fid = u.searchParams.get("fid");
@@ -49,11 +42,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "No registered users" }, { status: 404 });
   }
 
-  const [fidStr, appFidStr] = member.split(":");
-  const fidNum = Number(fidStr);
-  const appFidNum = Number(appFidStr);
-
-  const rec = await loadNotification(redis, fidNum, appFidNum);
+  // loadNotification expects a memberId string like "fid:appFid"
+  const rec = await loadNotification(redis, member);
   if (!rec) {
     return NextResponse.json({ ok: false, error: "No record found for member" }, { status: 404 });
   }
