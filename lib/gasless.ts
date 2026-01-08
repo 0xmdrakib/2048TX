@@ -1,151 +1,156 @@
-import type { EIP1193Provider } from './types';
+import type { EIP1193Provider } from "./types";
 
-/**
- * Minimal EIP-5792 / ERC-7677 helpers for gasless (paymaster) calls.
- *
- * Important mental model:
- * - Gasless requires a *smart wallet* that supports `wallet_sendCalls` and the `paymasterService` capability.
- * - The paymaster configuration in CDP must allowlist the *exact contract address* and *exact function signature/selector*.
- */
+type JsonRpcError = { code?: number; message?: string };
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-type HexHash = `0x${string}`;
-function isHexHash(value: unknown): value is HexHash {
-  return typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
+function methodUnsupported(e: unknown) {
+  const err = e as JsonRpcError;
+  const msg = String(err?.message ?? e);
+  return err?.code === -32601 || /does not support|not support|Method not found/i.test(msg);
 }
 
-
-export type WalletCall = {
-  to: `0x${string}`;
-  data: `0x${string}`;
-  value?: `0x${string}`;
-};
-
-function withZeroValue(calls: WalletCall[]): WalletCall[] {
-  return calls.map((c) => ({ ...c, value: c.value ?? '0x0' }));
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-function pickCapabilitiesForChain(
-  capabilities: any,
-  chainIdHex: string,
-): any | undefined {
-  if (!capabilities || typeof capabilities !== 'object') return undefined;
-  const chainIdDec = Number.parseInt(chainIdHex, 16).toString();
-  return capabilities[chainIdHex] ?? capabilities[chainIdDec];
-}
-
-export async function supportsPaymaster(provider: EIP1193Provider, from: `0x${string}`) {
+export async function supportsPaymaster(params: {
+  provider: EIP1193Provider;
+  from: `0x${string}`;
+  chainIdHex: `0x${string}`;
+}): Promise<boolean> {
   try {
-    const chainIdHex = (await provider.request({ method: 'eth_chainId' })) as string;
-    const caps = (await provider.request({
-      method: 'wallet_getCapabilities',
-      params: [from],
+    const caps = (await params.provider.request({
+      method: "wallet_getCapabilities",
+      params: [params.from],
     })) as any;
 
-    const capsForChain = pickCapabilitiesForChain(caps, chainIdHex);
-    return Boolean(capsForChain?.paymasterService?.supported);
-  } catch {
+    // Different implementations key this map differently (hex chainId like "0x2105" vs decimal like 8453).
+    const chainIdDec = Number.parseInt(params.chainIdHex, 16);
+    const byHex = caps?.[params.chainIdHex];
+    const byDec = caps?.[chainIdDec] ?? caps?.[String(chainIdDec)];
+    const cap = byHex ?? byDec;
+
+    // Per EIP-5792 / Base Account docs:
+    // { "0x2105": { paymasterService: { supported: true } } }
+    return cap?.paymasterService?.supported === true;
+  } catch (e) {
+    if (methodUnsupported(e)) return false;
     return false;
   }
 }
 
-type SendCallsArgs = {
+async function sendCalls(params: {
   provider: EIP1193Provider;
+  chainIdHex: `0x${string}`;
   from: `0x${string}`;
-  calls: WalletCall[];
-  paymasterServiceUrl?: string;
-  // You can override if needed, but usually `eth_chainId` is fine
-  chainIdHexOverride?: string;
-};
-
-async function walletSendCalls(
-  provider: EIP1193Provider,
-  params: any,
-): Promise<string> {
-  const res = (await provider.request({
-    method: 'wallet_sendCalls',
-    params: [params],
-  })) as any;
-
-  // Some wallets return a string directly; others wrap it.
-  if (typeof res === 'string') return res;
-  if (res?.id) return res.id;
-  if (res?.result?.id) return res.result.id;
-  throw new Error('wallet_sendCalls did not return a call batch id');
-}
-
-async function waitForTxHash(
-  provider: EIP1193Provider,
-  callsId: string,
-): Promise<`0x${string}`> {
-  const deadline = Date.now() + 90_000; // 90s
-  while (Date.now() < deadline) {
-    const status = (await provider.request({
-      method: 'wallet_getCallsStatus',
-      params: [callsId],
-    })) as any;
-
-    const receipts = status?.receipts ?? status?.result?.receipts;
-    const rawTxHash =
-      receipts?.[0]?.transactionHash ??
-      receipts?.[0]?.transactionHash?.hash;
-
-    if (isHexHash(rawTxHash)) return rawTxHash;
-
-    await sleep(800);
-  }
-  throw new Error('Timed out waiting for wallet_getCallsStatus to return a transactionHash');
-}
-
-/**
- * Sends calls via `wallet_sendCalls`.
- * - If `paymasterServiceUrl` is provided, we attach `capabilities.paymasterService.url` (ERC-7677 flow).
- * - Tries Base Account / Coinbase Smart Wallet v2.0.0 params first, and falls back to v1.0 params if needed.
- */
-export async function sendSponsoredCallsAndGetTxHash({
-  provider,
-  from,
-  calls,
-  paymasterServiceUrl,
-  chainIdHexOverride,
-}: SendCallsArgs): Promise<`0x${string}`> {
-  const chainIdHex =
-    chainIdHexOverride ??
-    ((await provider.request({ method: 'eth_chainId' })) as string);
-
-  const normalizedCalls = withZeroValue(calls);
-
-  const maybeCapabilities = paymasterServiceUrl
-    ? { paymasterService: { url: paymasterServiceUrl } }
-    : undefined;
-
-  // Base Account / Coinbase Smart Wallet format (v2.0.0)
-  const v2Params = {
-    version: '2.0.0',
-    chainId: chainIdHex,
-    from,
-    calls: normalizedCalls,
-    atomicRequired: true,
-    ...(maybeCapabilities ? { capabilities: maybeCapabilities } : {}),
-  };
-
-  // ERC-7677 example format (v1.0)
-  const v1Params = {
-    version: '1.0',
-    chainId: chainIdHex,
-    from,
-    calls: normalizedCalls,
-    ...(maybeCapabilities ? { capabilities: maybeCapabilities } : {}),
-  };
-
-  let callsId: string;
-
+  calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
+  paymasterProxyUrl: string;
+}): Promise<unknown> {
+  // Try newer shape first (some wallets want this),
+  // then fall back to the simpler 1.0 style used in Base docs.
   try {
-    callsId = await walletSendCalls(provider, v2Params);
-  } catch (err: any) {
-    // Some wallets only accept v1.0-style params.
-    callsId = await walletSendCalls(provider, v1Params);
+    return (await params.provider.request({
+      method: "wallet_sendCalls",
+      params: [
+        {
+          version: "2.0.0",
+          chainId: params.chainIdHex,
+          from: params.from,
+          calls: params.calls,
+          atomicRequired: true,
+          capabilities: {
+            // `optional: true` means wallets that *don't* support paymasters
+            // can still process the request (it will just not be sponsored).
+            paymasterService: { url: params.paymasterProxyUrl, optional: true },
+          },
+        },
+      ],
+    })) as any;
+  } catch (e) {
+    // Fall back to 1.0 style from Base docs
+    return (await params.provider.request({
+      method: "wallet_sendCalls",
+      params: [
+        {
+          version: "1.0",
+          chainId: params.chainIdHex,
+          from: params.from,
+          calls: params.calls,
+          capabilities: {
+            paymasterService: { url: params.paymasterProxyUrl, optional: true },
+          },
+        },
+      ],
+    })) as any;
+  }
+}
+
+export async function sendSponsoredCallsAndGetTxHash(params: {
+  provider: EIP1193Provider;
+  chainIdHex: `0x${string}`;
+  from: `0x${string}`;
+  calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
+  timeoutMs?: number;
+}): Promise<`0x${string}`> {
+  const paymasterProxyUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
+  if (!paymasterProxyUrl) {
+    throw new Error("Missing NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL");
   }
 
-  return await waitForTxHash(provider, callsId);
+  const callsIdRaw: unknown = await sendCalls({
+    provider: params.provider,
+    chainIdHex: params.chainIdHex,
+    from: params.from,
+    calls: params.calls,
+    paymasterProxyUrl,
+  });
+
+  // Some wallets return the id directly as a string; others return an object.
+  let callsId: unknown = callsIdRaw;
+  if (typeof callsIdRaw !== "string" && callsIdRaw && typeof callsIdRaw === "object") {
+    const obj = callsIdRaw as Record<string, unknown>;
+    callsId = obj.id ?? obj.result ?? obj.callsId;
+  }
+
+  if (!callsId || typeof callsId !== "string") {
+    throw new Error("wallet_sendCalls did not return a callsId");
+  }
+
+  const timeoutMs = params.timeoutMs ?? 60_000;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    let status: any;
+    try {
+      status = await params.provider.request({
+        method: "wallet_getCallsStatus",
+        params: [callsId],
+      });
+    } catch (e) {
+      if (methodUnsupported(e)) {
+        throw new Error("wallet_getCallsStatus not supported by this wallet");
+      }
+      throw e;
+    }
+
+    const code = Number(status?.status ?? 0);
+
+    // 100 = pending; 200 = success; 4xx/5xx/6xx = failures per Base docs
+    if (code === 100) {
+      await sleep(1200);
+      continue;
+    }
+
+    if (code === 200) {
+      const receipts = status?.receipts ?? [];
+      const txHash = receipts?.[0]?.transactionHash;
+      if (typeof txHash === "string" && txHash.startsWith("0x")) {
+        return txHash as `0x${string}`;
+      }
+      throw new Error("No transactionHash found in receipts");
+    }
+
+    throw new Error(`Sponsored batch failed (status=${code})`);
+  }
+
+  throw new Error("Timed out waiting for sponsored transaction");
 }
