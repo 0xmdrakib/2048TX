@@ -141,7 +141,7 @@ export async function submitScore(params: {
       try {
         return await sendSponsoredCallsAndGetTxHash({
           provider: params.provider,
-          chainIdHex,
+          chainIdHexOverride: chainIdHex,
           from: params.from,
           calls: [{ to: params.contract, value: "0x0", data }],
           paymasterServiceUrl,
@@ -182,7 +182,7 @@ export async function submitScore(params: {
             try {
               return await sendSponsoredCallsAndGetTxHash({
                 provider: eth,
-                chainIdHex,
+                chainIdHexOverride: chainIdHex,
                 from: params.from,
                 calls: [{ to: params.contract, value: "0x0", data }],
                 paymasterServiceUrl,
