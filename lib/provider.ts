@@ -137,16 +137,53 @@ export async function ensureChain(provider: EIP1193Provider, chainIdDec: number)
   }
 }
 
-export async function getAccount(provider: EIP1193Provider): Promise<`0x${string}` | null> {
-  // If this is the Base Account provider, prefer the Smart Account address.
-  if (provider === cachedBaseAccountProvider) {
-    const addr = await getBaseAccountAddress();
-    if (addr) return addr;
+export async function getAccount(provider: EIP1193Provider) {
+  // 1) Always try to connect via Coinbase/Base Account `wallet_connect` first.
+  //    This is the most reliable way to get the Smart Wallet address used for `wallet_sendCalls`. 
+  const desiredChainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 8453);
+  const desiredChainIdHex = `0x${desiredChainId.toString(16)}`;
+
+  // Best effort: switch chain (ignore if wallet doesn't support it)
+  try {
+    const chainIdHex = (await provider.request({ method: "eth_chainId" })) as string;
+    if (chainIdHex?.toLowerCase() !== desiredChainIdHex.toLowerCase()) {
+      await provider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: desiredChainIdHex }],
+      });
+    }
+  } catch {
+    // ignore
   }
 
-  const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
-  if (accounts && accounts[0]) return accounts[0] as `0x${string}`;
-  return null;
+  // Try Base Account SDK (works inside Base App + Coinbase Smart Wallet contexts)
+  const baseAccountAddress = await getBaseAccountAddress(desiredChainId);
+  if (baseAccountAddress) return baseAccountAddress;
+
+  // Try Coinbase Wallet / Base Account connection method
+  try {
+    const res = (await provider.request({
+      method: "wallet_connect",
+      params: [{}],
+    })) as any;
+
+    const addr =
+      res?.accounts?.[0]?.address ??
+      res?.result?.accounts?.[0]?.address ??
+      (Array.isArray(res) ? res?.[0] : undefined);
+
+    if (typeof addr === "string" && addr.startsWith("0x")) return addr as `0x${string}`;
+  } catch {
+    // ignore (other wallets won't support wallet_connect)
+  }
+
+  // Fallback: standard EIP-1193 connect
+  const accounts = (await provider.request({
+    method: "eth_requestAccounts",
+  })) as string[];
+
+  if (!accounts?.[0]) throw new Error("No accounts returned from eth_requestAccounts");
+  return accounts[0] as `0x${string}`;
 }
 
 export async function requestAccount(provider: EIP1193Provider): Promise<`0x${string}`> {
