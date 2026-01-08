@@ -1,4 +1,4 @@
-import type { EIP1193Provider } from './provider';
+import type { EIP1193Provider } from './types';
 
 /**
  * Minimal EIP-5792 / ERC-7677 helpers for gasless (paymaster) calls.
