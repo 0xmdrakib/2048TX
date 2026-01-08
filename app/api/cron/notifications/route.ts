@@ -30,6 +30,16 @@ export async function GET(req: Request) {
   }
 
   const redis = getRedis();
+  if (!redis) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
+      },
+      { status: 500 }
+    );
+  }
   const now = Math.floor(Date.now() / 1000);
 
   const dueMembers = await redis.zrange(NOTIF_KEYS.dueZ, 0, now, {
