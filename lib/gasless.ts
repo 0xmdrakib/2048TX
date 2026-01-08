@@ -23,7 +23,13 @@ export async function supportsPaymaster(params: {
       params: [params.from],
     })) as any;
 
-    return caps?.[params.chainIdHex]?.paymasterService?.supported === true;
+    // Different implementations key this map differently (hex chainId like "0x2105" vs decimal like 8453).
+    const chainIdDec = Number.parseInt(params.chainIdHex, 16);
+    const byHex = caps?.[params.chainIdHex];
+    const byDec = caps?.[chainIdDec] ?? caps?.[String(chainIdDec)];
+    const cap = byHex ?? byDec;
+
+    return cap?.paymasterService?.supported === true;
   } catch (e) {
     if (methodUnsupported(e)) return false;
     return false;
