@@ -131,19 +131,20 @@ export async function submitScore(params: {
       params: [],
     })) as `0x${string}`;
 
-    const canSponsor = await supportsPaymaster({
-      provider: params.provider,
-      from: params.from,
-      chainIdHex,
-    });
+    const paymasterServiceUrl =
+      process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL ??
+      process.env.NEXT_PUBLIC_CDP_PAYMASTER;
 
-    if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
+    const canSponsor = await supportsPaymaster(params.provider, params.from);
+
+    if (canSponsor && paymasterServiceUrl) {
       try {
         return await sendSponsoredCallsAndGetTxHash({
           provider: params.provider,
           chainIdHex,
           from: params.from,
           calls: [{ to: params.contract, value: "0x0", data }],
+          paymasterServiceUrl,
         });
       } catch (e) {
         // If the wallet claims paymaster support but sponsorship fails, surface the error
@@ -175,19 +176,16 @@ export async function submitScore(params: {
             params: [],
           })) as `0x${string}`;
 
-          const canSponsor = await supportsPaymaster({
-            provider: eth,
-            from: params.from,
-            chainIdHex,
-          });
+          const canSponsor = await supportsPaymaster(eth, params.from);
 
-          if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
+          if (canSponsor && paymasterServiceUrl) {
             try {
               return await sendSponsoredCallsAndGetTxHash({
                 provider: eth,
                 chainIdHex,
                 from: params.from,
                 calls: [{ to: params.contract, value: "0x0", data }],
+                paymasterServiceUrl,
               });
             } catch (e) {
               const msg = String((e as any)?.message ?? e);
