@@ -8,25 +8,71 @@ export async function getEvmProvider(): Promise<EIP1193Provider | null> {
   // Lazy import so SSR never touches the SDK.
   if (typeof window === "undefined") return null;
 
-  // 1) Farcaster Mini App provider (if inside FC/Base miniapp environment)
+  // Grab candidates (Farcaster SDK provider + injected provider).
+  let farcasterProvider: EIP1193Provider | null = null;
   try {
     const { sdk } = await import("@farcaster/miniapp-sdk");
     const raw = await sdk.wallet.getEthereumProvider();
-
     if (raw && typeof (raw as any).request === "function") {
-      return raw as unknown as EIP1193Provider;
+      farcasterProvider = raw as EIP1193Provider;
     }
   } catch {
     // ignore
   }
 
-  // 2) Browser provider fallback (MetaMask/Coinbase extension, etc.)
-  const eth = (window as any)?.ethereum;
-  if (eth && typeof eth.request === "function") {
-    return eth as EIP1193Provider;
+  const injected = (window as any)?.ethereum;
+  const injectedProvider =
+    injected && typeof injected.request === "function"
+      ? (injected as EIP1193Provider)
+      : null;
+
+  const candidates = [farcasterProvider, injectedProvider].filter(
+    Boolean
+  ) as EIP1193Provider[];
+
+  if (candidates.length === 0) return null;
+
+  // If paymaster proxy is configured, prefer a provider that *actually supports* paymasterService.
+  const paymasterProxy = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
+  const chainIdDec = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
+  const chainIdHex = ("0x" + chainIdDec.toString(16)) as `0x${string}`;
+
+  async function pickPaymasterCapable(): Promise<EIP1193Provider | null> {
+    if (!paymasterProxy) return null;
+
+    for (const p of candidates) {
+      try {
+        const accounts = (await p.request({
+          method: "eth_accounts",
+        })) as string[];
+        const from = accounts?.[0] as `0x${string}` | undefined;
+        if (!from) continue;
+
+        const caps = (await p.request({
+          method: "wallet_getCapabilities",
+          params: [from],
+        })) as any;
+
+        // Some wallets key this by hex chainId, others by decimal.
+        const chainIdKeyDec = chainIdDec;
+        const cap =
+          caps?.[chainIdHex] ??
+          caps?.[chainIdKeyDec] ??
+          caps?.[String(chainIdKeyDec)];
+
+        if (cap?.paymasterService?.supported === true) return p;
+      } catch {
+        // ignore and try next candidate
+      }
+    }
+    return null;
   }
 
-  return null;
+  const paymasterProvider = await pickPaymasterCapable();
+  if (paymasterProvider) return paymasterProvider;
+
+  // Otherwise, preserve the original priority: Farcaster provider first, then injected.
+  return farcasterProvider ?? injectedProvider ?? candidates[0];
 }
 
 
