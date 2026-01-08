@@ -36,7 +36,7 @@ async function sendCalls(params: {
   from: `0x${string}`;
   calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
   paymasterProxyUrl: string;
-}): Promise<string> {
+}): Promise<unknown> {
   // Try newer shape first (some wallets want this),
   // then fall back to the simpler 1.0 style used in Base docs.
   try {
@@ -86,7 +86,7 @@ export async function sendSponsoredCallsAndGetTxHash(params: {
     throw new Error("Missing NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL");
   }
 
-  const callsIdRaw = await sendCalls({
+  const callsIdRaw: unknown = await sendCalls({
     provider: params.provider,
     chainIdHex: params.chainIdHex,
     from: params.from,
@@ -95,10 +95,11 @@ export async function sendSponsoredCallsAndGetTxHash(params: {
   });
 
   // Some wallets return the id directly as a string; others return an object.
-  const callsId =
-    typeof callsIdRaw === "string"
-      ? callsIdRaw
-      : (callsIdRaw?.id ?? callsIdRaw?.result ?? callsIdRaw?.callsId);
+  let callsId: unknown = callsIdRaw;
+  if (typeof callsIdRaw !== "string" && callsIdRaw && typeof callsIdRaw === "object") {
+    const obj = callsIdRaw as Record<string, unknown>;
+    callsId = obj.id ?? obj.result ?? obj.callsId;
+  }
 
   if (!callsId || typeof callsId !== "string") {
     throw new Error("wallet_sendCalls did not return a callsId");
