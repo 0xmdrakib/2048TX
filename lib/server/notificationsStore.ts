@@ -1,91 +1,152 @@
-import "server-only";
 import type { Redis } from "@upstash/redis";
 
-// Dedicated keys so we don't mix notification data with leaderboard keys.
 export const NOTIF_KEYS = {
-  // JSON record per (fid, appFid)
+  dueZ: "notif:due:z",
   user: (fid: number, appFid: number) => `notif:user:${fid}:${appFid}`,
-  // Sorted set of due deliveries: member = `${fid}:${appFid}`, score = nextSendAt (epoch seconds)
-  dueZ: "notif:due",
+  events: "notif:events", // list of recent webhook events (debug)
 } as const;
 
-/**
- * Supported cadences (hours).
- * - Use 1 for testing
- * - Use 6 or 12 for production
- */
-export type CadenceHours = 1 | 6 | 12;
+export type NotifCadenceHours = 1 | 6 | 12;
 
 export type NotifRecord = {
   fid: number;
   appFid: number;
-  url: string;
   token: string;
-  cadenceHours: CadenceHours;
-  nextSendAt: number; // epoch seconds
-  lastSentAt?: number; // epoch seconds
+  url: string;
+
+  cadenceHours: NotifCadenceHours;
+  nextSendAt: number; // unix seconds
+
+  // bookkeeping
+  createdAt: number;
+  updatedAt: number;
+
+  lastSentAt?: number;
+  lastAttemptAt?: number;
+  lastResult?: "sent" | "invalid" | "rate_limited" | "error";
+  invalidStreak?: number;
+  lastError?: string;
+  lastResponse?: {
+    status: number;
+    successful: number;
+    invalid: number;
+    rateLimited: number;
+  };
 };
 
-function member(fid: number, appFid: number) {
+export function member(fid: number, appFid: number) {
   return `${fid}:${appFid}`;
 }
 
-function parseCadenceHours(raw: string | undefined): CadenceHours {
-  const v = (raw ?? "12").trim();
-  if (v === "1") return 1;
-  if (v === "6") return 6;
-  if (v === "12") return 12;
-  return 12;
+function computeNextSendAt(fromSeconds: number, cadenceHours: NotifCadenceHours) {
+  return Math.floor(fromSeconds + cadenceHours * 60 * 60);
 }
 
-export function getDefaultCadenceHours(): CadenceHours {
-  // IMPORTANT: env name is NOTIF_CADENCE_HOURS (plural)
-  return parseCadenceHours(process.env.NOTIF_CADENCE_HOURS);
+function normalizeCadenceHours(raw: unknown): NotifCadenceHours {
+  const env = process.env.NOTIF_CADENCE_HOURS;
+  const parsed = Number(env);
+  if (parsed === 1 || parsed === 6 || parsed === 12) return parsed;
+  // fallback to the stored value if it looks valid
+  if (raw === 1 || raw === 6 || raw === 12) return raw;
+  // safe default
+  return 6;
 }
 
-function computeNextSendAt(nowSec: number, cadenceHours: CadenceHours) {
-  return nowSec + cadenceHours * 3600;
-}
-
-/**
- * If you change NOTIF_CADENCE_HOURS after users have subscribed,
- * their stored records might still contain the old cadence/nextSendAt.
- * This normalizes the cadence to the current env on read, and updates dueZ.
- */
-async function normalizeCadence(redis: Redis, rec: NotifRecord) {
-  const envCadence = getDefaultCadenceHours();
-  if (rec.cadenceHours === envCadence) return rec;
-
-  const now = Math.floor(Date.now() / 1000);
-  rec.cadenceHours = envCadence;
-  rec.nextSendAt = rec.lastSentAt
-    ? rec.lastSentAt + envCadence * 3600
-    : computeNextSendAt(now, envCadence);
-
+async function persist(redis: Redis, rec: NotifRecord) {
+  rec.updatedAt = Math.floor(Date.now() / 1000);
   await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
-  await redis.zadd(NOTIF_KEYS.dueZ, { score: rec.nextSendAt, member: member(rec.fid, rec.appFid) });
-
-  return rec;
+  await redis.zadd(NOTIF_KEYS.dueZ, {
+    score: rec.nextSendAt,
+    member: member(rec.fid, rec.appFid),
+  });
 }
 
 export async function upsertNotificationDetails(
   redis: Redis,
-  args: { fid: number; appFid: number; url: string; token: string; cadenceHours?: CadenceHours }
+  fid: number,
+  appFid: number,
+  details: { token: string; url: string },
 ) {
   const now = Math.floor(Date.now() / 1000);
-  const cadenceHours = args.cadenceHours ?? getDefaultCadenceHours();
+
+  // If an old record exists, keep its bookkeeping.
+  const existing = await loadNotification(redis, member(fid, appFid));
+
+  const cadenceHours = normalizeCadenceHours(existing?.cadenceHours);
 
   const rec: NotifRecord = {
-    fid: args.fid,
-    appFid: args.appFid,
-    url: args.url,
-    token: args.token,
+    fid,
+    appFid,
+    token: details.token,
+    url: details.url,
+
     cadenceHours,
     nextSendAt: computeNextSendAt(now, cadenceHours),
+
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+
+    lastSentAt: existing?.lastSentAt,
+    lastAttemptAt: existing?.lastAttemptAt,
+    lastResult: existing?.lastResult,
+    invalidStreak: existing?.invalidStreak ?? 0,
+    lastError: existing?.lastError,
+    lastResponse: existing?.lastResponse,
   };
 
-  await redis.set(NOTIF_KEYS.user(args.fid, args.appFid), JSON.stringify(rec));
-  await redis.zadd(NOTIF_KEYS.dueZ, { score: rec.nextSendAt, member: member(args.fid, args.appFid) });
+  await persist(redis, rec);
+  return rec;
+}
+
+export async function loadNotification(redis: Redis, memberId: string): Promise<NotifRecord | null> {
+  const [fidStr, appFidStr] = memberId.split(":");
+  const fid = Number(fidStr);
+  const appFid = Number(appFidStr);
+  if (!Number.isFinite(fid) || !Number.isFinite(appFid)) return null;
+
+  const raw = await redis.get<string>(NOTIF_KEYS.user(fid, appFid));
+  if (!raw) return null;
+
+  let parsed: any;
+  try {
+    parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    return null;
+  }
+
+  // Minimal validation / migration.
+  if (!parsed || typeof parsed !== "object") return null;
+  if (typeof parsed.token !== "string" || typeof parsed.url !== "string") return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const cadenceHours = normalizeCadenceHours(parsed.cadenceHours);
+
+  const rec: NotifRecord = {
+    fid,
+    appFid,
+    token: parsed.token,
+    url: parsed.url,
+
+    cadenceHours,
+    nextSendAt: typeof parsed.nextSendAt === "number" ? parsed.nextSendAt : computeNextSendAt(now, cadenceHours),
+
+    createdAt: typeof parsed.createdAt === "number" ? parsed.createdAt : now,
+    updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : now,
+
+    lastSentAt: typeof parsed.lastSentAt === "number" ? parsed.lastSentAt : undefined,
+    lastAttemptAt: typeof parsed.lastAttemptAt === "number" ? parsed.lastAttemptAt : undefined,
+    lastResult: parsed.lastResult,
+    invalidStreak: typeof parsed.invalidStreak === "number" ? parsed.invalidStreak : 0,
+    lastError: typeof parsed.lastError === "string" ? parsed.lastError : undefined,
+    lastResponse: parsed.lastResponse,
+  };
+
+  // If cadence changed (env), recompute nextSendAt based on lastSentAt.
+  if (rec.cadenceHours !== parsed.cadenceHours) {
+    const base = rec.lastSentAt ?? now;
+    rec.nextSendAt = computeNextSendAt(base, rec.cadenceHours);
+    await persist(redis, rec);
+  }
 
   return rec;
 }
@@ -95,39 +156,38 @@ export async function disableNotifications(redis: Redis, fid: number, appFid: nu
   await redis.zrem(NOTIF_KEYS.dueZ, member(fid, appFid));
 }
 
-export async function loadNotification(redis: Redis, fid: number, appFid: number): Promise<NotifRecord | null> {
-  const raw = await redis.get<string>(NOTIF_KEYS.user(fid, appFid));
-  if (!raw) return null;
-
-  try {
-    const rec = JSON.parse(raw) as NotifRecord;
-
-    if (!rec || typeof rec !== "object") return null;
-    if (typeof rec.fid !== "number" || typeof rec.appFid !== "number") return null;
-    if (typeof rec.url !== "string" || typeof rec.token !== "string") return null;
-    if (typeof rec.nextSendAt !== "number") return null;
-
-    if (rec.cadenceHours !== 1 && rec.cadenceHours !== 6 && rec.cadenceHours !== 12) {
-      rec.cadenceHours = getDefaultCadenceHours();
-    }
-
-    return await normalizeCadence(redis, rec);
-  } catch {
-    return null;
-  }
-}
-
 export async function reschedule(redis: Redis, rec: NotifRecord, whenSeconds: number) {
   rec.nextSendAt = whenSeconds;
-  await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
-  await redis.zadd(NOTIF_KEYS.dueZ, { score: rec.nextSendAt, member: member(rec.fid, rec.appFid) });
+  await persist(redis, rec);
 }
 
 export async function markSent(redis: Redis, rec: NotifRecord) {
   const now = Math.floor(Date.now() / 1000);
   rec.lastSentAt = now;
+  rec.lastAttemptAt = now;
+  rec.lastResult = "sent";
+  rec.invalidStreak = 0;
+  rec.lastError = undefined;
   rec.nextSendAt = computeNextSendAt(now, rec.cadenceHours);
-
-  await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
-  await redis.zadd(NOTIF_KEYS.dueZ, { score: rec.nextSendAt, member: member(rec.fid, rec.appFid) });
+  await persist(redis, rec);
 }
+
+export async function markAttempt(
+  redis: Redis,
+  rec: NotifRecord,
+  patch: {
+    result: NotifRecord["lastResult"];
+    response?: NotifRecord["lastResponse"];
+    error?: string;
+    bumpInvalid?: boolean;
+  },
+) {
+  const now = Math.floor(Date.now() / 1000);
+  rec.lastAttemptAt = now;
+  rec.lastResult = patch.result;
+  rec.lastResponse = patch.response;
+  rec.lastError = patch.error;
+  if (patch.bumpInvalid) rec.invalidStreak = (rec.invalidStreak ?? 0) + 1;
+  await persist(redis, rec);
+}
+
