@@ -157,7 +157,7 @@ export async function getAccount(provider: EIP1193Provider) {
   }
 
   // Try Base Account SDK (works inside Base App + Coinbase Smart Wallet contexts)
-  const baseAccountAddress = await getBaseAccountAddress(desiredChainId);
+  const baseAccountAddress = await getBaseAccountAddress();
   if (baseAccountAddress) return baseAccountAddress;
 
   // Try Coinbase Wallet / Base Account connection method
