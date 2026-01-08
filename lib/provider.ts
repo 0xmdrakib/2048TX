@@ -11,6 +11,20 @@ import type { EIP1193Provider } from "./types";
 
 let cachedBaseAccountProvider: EIP1193Provider | null = null;
 
+async function getBaseAccountAddress(): Promise<`0x${string}` | null> {
+  // Base Account SDK doesn't always surface the Smart Account address via `eth_accounts`.
+  // The canonical way is `getCryptoKeyAccount()` (Base docs).
+  try {
+    const { getCryptoKeyAccount } = await import("@base-org/account");
+    const cryptoAccount = await getCryptoKeyAccount();
+    const addr = cryptoAccount?.account?.address;
+    return addr ? (addr as `0x${string}`) : null;
+  } catch {
+    return null;
+  }
+}
+
+
 async function getBaseAccountProvider(): Promise<EIP1193Provider | null> {
   if (typeof window === "undefined") return null;
   if (cachedBaseAccountProvider) return cachedBaseAccountProvider;
@@ -124,13 +138,31 @@ export async function ensureChain(provider: EIP1193Provider, chainIdDec: number)
 }
 
 export async function getAccount(provider: EIP1193Provider): Promise<`0x${string}` | null> {
+  // If this is the Base Account provider, prefer the Smart Account address.
+  if (provider === cachedBaseAccountProvider) {
+    const addr = await getBaseAccountAddress();
+    if (addr) return addr;
+  }
+
   const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
   if (accounts && accounts[0]) return accounts[0] as `0x${string}`;
   return null;
 }
 
 export async function requestAccount(provider: EIP1193Provider): Promise<`0x${string}`> {
+  // Base Account: get the Smart Account address via getCryptoKeyAccount()
+  if (provider === cachedBaseAccountProvider) {
+    const addr = await getBaseAccountAddress();
+    if (addr) return addr;
+  }
+
   const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
+  // Some Base Account flows still return an EOA address here; re-check for Smart Account.
+  if (provider === cachedBaseAccountProvider) {
+    const addr = await getBaseAccountAddress();
+    if (addr) return addr;
+  }
+
   if (!accounts?.[0]) throw new Error("No account returned.");
   return accounts[0] as `0x${string}`;
 }
