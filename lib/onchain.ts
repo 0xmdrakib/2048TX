@@ -138,12 +138,19 @@ export async function submitScore(params: {
     });
 
     if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
-      return await sendSponsoredCallsAndGetTxHash({
-        provider: params.provider,
-        chainIdHex,
-        from: params.from,
-        calls: [{ to: params.contract, value: "0x0", data }],
-      });
+      try {
+        return await sendSponsoredCallsAndGetTxHash({
+          provider: params.provider,
+          chainIdHex,
+          from: params.from,
+          calls: [{ to: params.contract, value: "0x0", data }],
+        });
+      } catch (e) {
+        // If the wallet claims paymaster support but sponsorship fails, surface the error
+        // so you can inspect CDP Paymaster -> Error logs.
+        const msg = String((e as any)?.message ?? e);
+        throw new Error(`Paymaster sponsorship failed: ${msg}`);
+      }
     }
   } catch {
     // ignore and try fallbacks
@@ -175,12 +182,17 @@ export async function submitScore(params: {
           });
 
           if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
-            return await sendSponsoredCallsAndGetTxHash({
-              provider: eth,
-              chainIdHex,
-              from: params.from,
-              calls: [{ to: params.contract, value: "0x0", data }],
-            });
+            try {
+              return await sendSponsoredCallsAndGetTxHash({
+                provider: eth,
+                chainIdHex,
+                from: params.from,
+                calls: [{ to: params.contract, value: "0x0", data }],
+              });
+            } catch (e) {
+              const msg = String((e as any)?.message ?? e);
+              throw new Error(`Paymaster sponsorship failed (window.ethereum): ${msg}`);
+            }
           }
         }
       }
