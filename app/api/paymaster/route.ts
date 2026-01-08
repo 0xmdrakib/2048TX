@@ -1,15 +1,16 @@
+const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-headers": "*",
+  "access-control-max-age": "86400",
+  "cache-control": "no-store",
+} as const;
+
 export async function OPTIONS() {
-  // Some environments may preflight (especially when the wallet runs in a stricter webview).
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "access-control-allow-origin": "*",
-      "access-control-allow-methods": "POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
-      "cache-control": "no-store",
-    },
-  });
+  // Some environments may preflight (especially in stricter mobile webviews).
+  return new Response(null, { status: 204, headers: corsHeaders });
 }
+
 
 const ALLOWED_BUNDLER_METHODS = new Set([
   // Common ERC-4337 bundler methods (the CDP endpoint is "Paymaster & Bundler").
@@ -18,6 +19,12 @@ const ALLOWED_BUNDLER_METHODS = new Set([
   "eth_estimateUserOperationGas",
   "eth_getUserOperationReceipt",
   "eth_getUserOperationByHash",
+
+  // Some clients also call these on the bundler endpoint:
+  "eth_chainId",
+  "eth_gasPrice",
+  "eth_maxPriorityFeePerGas",
+  "eth_getUserOperationGasPrice",
 ]);
 
 function isAllowedMethod(method: string) {
@@ -61,8 +68,7 @@ export async function POST(req: Request) {
     status: upstreamRes.status,
     headers: {
       "content-type": "application/json",
-      "cache-control": "no-store",
-      "access-control-allow-origin": "*",
+      ...corsHeaders,
     },
   });
 }
