@@ -410,11 +410,24 @@ return;
     const provider = p as NonNullable<typeof p>;
 try {
       setBusy(true);
-      // Some embedded wallets implement only a subset of EIP-1193.
-      // ensureChain will throw a friendly error if switching is not supported.
-      await ensureChain(provider, chainId);
+      // IMPORTANT UX: keep score-saving to a single wallet prompt.
+      // - Don't auto-switch chains (that opens an extra prompt)
+      // - Don't auto-connect accounts here (that opens an extra prompt)
+      // Users should tap the "Connect" button first.
+      const chainIdHex = (await provider.request({
+        method: "eth_chainId",
+        params: [],
+      })) as `0x${string}`;
 
-      const acct = (address ?? (await getAccount(provider)) ?? (await requestAccount(provider))) as `0x${string}`;
+      const currentChainId = parseInt(chainIdHex, 16);
+      if (Number.isFinite(currentChainId) && currentChainId !== chainId) {
+        throw new Error("Wrong network. Please switch to Base Mainnet, then try again.");
+      }
+
+      const acct = (address ?? (await getAccount(provider))) as `0x${string}` | null;
+      if (!acct) {
+        throw new Error("Please connect your wallet first, then save your score.");
+      }
       setAddress(acct);
 
       // Capture the current submissions count so we can confirm success even if
