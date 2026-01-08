@@ -6,9 +6,13 @@ import {
 } from "@farcaster/miniapp-node";
 
 import { getRedis } from "@/lib/server/leaderboardStore";
-import { disableNotifications, upsertNotificationDetails } from "@/lib/server/notificationsStore";
+import {
+  NOTIF_KEYS,
+  disableNotifications,
+  upsertNotificationDetails,
+} from "@/lib/server/notificationsStore";
 
-// Webhooks must respond quickly (Base app waits for a successful response before activating tokens).
+// Webhooks must respond quickly (hosts wait for a successful response before activating tokens).
 // Keep this endpoint "store-and-ACK".
 export const runtime = "nodejs";
 
@@ -18,7 +22,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
+        error:
+          "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
       },
       { status: 500 }
     );
@@ -36,12 +41,31 @@ export async function POST(req: NextRequest) {
     data = await parseWebhookEvent(requestJson, verifyAppKeyWithNeynar);
   } catch (e: unknown) {
     const error = e as ParseWebhookEvent.ErrorType;
-    return NextResponse.json({ ok: false, error: error?.name ?? "WebhookVerifyError" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: error?.name ?? "WebhookVerifyError" },
+      { status: 400 }
+    );
   }
 
   const fid = data.fid;
   const appFid = data.appFid;
-  const event = data.event as { event: string; notificationDetails?: { token: string; url: string } };
+  const event = data.event as {
+    event: string;
+    notificationDetails?: { token: string; url: string };
+  };
+
+  // Debug breadcrumb: keep a small rolling log of webhook events.
+  // (Never store tokens here.)
+  try {
+    const ts = Math.floor(Date.now() / 1000);
+    await redis.lpush(
+      NOTIF_KEYS.events,
+      JSON.stringify({ ts, event: event.event, fid, appFid })
+    );
+    await redis.ltrim(NOTIF_KEYS.events, 0, 199);
+  } catch {
+    // ignore
+  }
 
   try {
     switch (event.event) {
@@ -68,8 +92,7 @@ export async function POST(req: NextRequest) {
         break;
     }
   } catch {
-    // Don't fail the webhook: return ok so the Base app doesn't block token activation.
-    // Worst case: we'll receive the next enable event again.
+    // Don't fail the webhook: return ok so the host doesn't block token activation.
   }
 
   return NextResponse.json({ ok: true });
