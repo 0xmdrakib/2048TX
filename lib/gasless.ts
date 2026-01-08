@@ -2,6 +2,20 @@ import type { EIP1193Provider } from "./types";
 
 type JsonRpcError = { code?: number; message?: string };
 
+function isUserRejected(e: unknown): boolean {
+  const err = e as any;
+  const code = err?.code ?? err?.data?.code;
+  if (code === 4001) return true; // EIP-1193 userRejectedRequest
+  const msg = String(err?.message ?? e);
+  return /user rejected|rejected the request|request rejected|cancelled|canceled/i.test(msg);
+}
+
+function isInvalidParams(e: unknown): boolean {
+  const err = e as JsonRpcError;
+  const msg = String(err?.message ?? e);
+  return err?.code === -32602 || /invalid params|invalid argument|version|atomicRequired/i.test(msg);
+}
+
 function methodUnsupported(e: unknown) {
   const err = e as JsonRpcError;
   const msg = String(err?.message ?? e);
@@ -29,8 +43,6 @@ export async function supportsPaymaster(params: {
     const byDec = caps?.[chainIdDec] ?? caps?.[String(chainIdDec)];
     const cap = byHex ?? byDec;
 
-    // Per EIP-5792 / Base Account docs:
-    // { "0x2105": { paymasterService: { supported: true } } }
     return cap?.paymasterService?.supported === true;
   } catch (e) {
     if (methodUnsupported(e)) return false;
@@ -58,14 +70,18 @@ async function sendCalls(params: {
           calls: params.calls,
           atomicRequired: true,
           capabilities: {
-            // `optional: true` means wallets that *don't* support paymasters
-            // can still process the request (it will just not be sponsored).
-            paymasterService: { url: params.paymasterProxyUrl, optional: true },
+            paymasterService: { url: params.paymasterProxyUrl },
           },
         },
       ],
     })) as any;
   } catch (e) {
+    // IMPORTANT UX RULE:
+    // If the user rejects the prompt, do NOT retry (that creates a 2nd prompt).
+    // Only fall back when it's clearly a parameter/version shape mismatch.
+    if (isUserRejected(e)) throw e;
+    if (!isInvalidParams(e)) throw e;
+
     // Fall back to 1.0 style from Base docs
     return (await params.provider.request({
       method: "wallet_sendCalls",
@@ -76,7 +92,7 @@ async function sendCalls(params: {
           from: params.from,
           calls: params.calls,
           capabilities: {
-            paymasterService: { url: params.paymasterProxyUrl, optional: true },
+            paymasterService: { url: params.paymasterProxyUrl },
           },
         },
       ],
@@ -143,10 +159,8 @@ export async function sendSponsoredCallsAndGetTxHash(params: {
     if (code === 200) {
       const receipts = status?.receipts ?? [];
       const txHash = receipts?.[0]?.transactionHash;
-      if (typeof txHash === "string" && txHash.startsWith("0x")) {
-        return txHash as `0x${string}`;
-      }
-      throw new Error("No transactionHash found in receipts");
+      if (!txHash) throw new Error("No transactionHash found in receipts");
+      return txHash as `0x${string}`;
     }
 
     throw new Error(`Sponsored batch failed (status=${code})`);
