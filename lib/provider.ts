@@ -1,87 +1,92 @@
 import type { EIP1193Provider } from "./types";
 
 /**
- * Prefer Farcaster Mini App provider if available.
- * Fallback to window.ethereum for normal browsers/Base app webview.
+ * Provider priority for Mini Apps (Base App + Farcaster clients):
+ *
+ * 1) Base Account SDK provider (Smart Wallet). This is the only path that can reliably
+ *    support paymasterService (gas sponsorship) because paymasters are a Base Account feature.
+ * 2) Farcaster Mini App provider (some clients expose an EIP-1193 provider, but it may be EOA-only).
+ * 3) window.ethereum fallback.
  */
-export async function getEvmProvider(): Promise<EIP1193Provider | null> {
-  // Lazy import so SSR never touches the SDK.
+
+let cachedBaseAccountProvider: EIP1193Provider | null = null;
+
+async function getBaseAccountProvider(): Promise<EIP1193Provider | null> {
+  if (typeof window === "undefined") return null;
+  if (cachedBaseAccountProvider) return cachedBaseAccountProvider;
+
+  try {
+    // Lazy import to keep SSR safe.
+    const { createBaseAccountSDK } = await import("@base-org/account");
+
+    const appName =
+      process.env.NEXT_PUBLIC_APP_NAME ??
+      process.env.NEXT_PUBLIC_SITE_NAME ??
+      "2048TX";
+
+    const appLogoUrl =
+      process.env.NEXT_PUBLIC_APP_LOGO_URL ?? `${window.location.origin}/icon.png`;
+
+    const chainIdDec = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
+
+    const sdk = createBaseAccountSDK({
+      appName,
+      appLogoUrl,
+      appChainIds: [chainIdDec],
+    } as any);
+
+    const provider = sdk.getProvider();
+    if (provider && typeof (provider as any).request === "function") {
+      cachedBaseAccountProvider = provider as unknown as EIP1193Provider;
+      return cachedBaseAccountProvider;
+    }
+  } catch {
+    // Not in Base App / Base Account not available.
+  }
+
+  return null;
+}
+
+async function getFarcasterProvider(): Promise<EIP1193Provider | null> {
   if (typeof window === "undefined") return null;
 
-  // Grab candidates (Farcaster SDK provider + injected provider).
-  let farcasterProvider: EIP1193Provider | null = null;
   try {
     const { sdk } = await import("@farcaster/miniapp-sdk");
     const raw = await sdk.wallet.getEthereumProvider();
+
     if (raw && typeof (raw as any).request === "function") {
-      farcasterProvider = raw as EIP1193Provider;
+      return raw as unknown as EIP1193Provider;
     }
   } catch {
     // ignore
   }
 
-  const injected = (window as any)?.ethereum;
-  const injectedProvider =
-    injected && typeof injected.request === "function"
-      ? (injected as EIP1193Provider)
-      : null;
-
-  const candidates = [farcasterProvider, injectedProvider].filter(
-    Boolean
-  ) as EIP1193Provider[];
-
-  if (candidates.length === 0) return null;
-
-  // If paymaster proxy is configured, prefer a provider that *actually supports* paymasterService.
-  const paymasterProxy = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
-  const chainIdDec = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
-  const chainIdHex = ("0x" + chainIdDec.toString(16)) as `0x${string}`;
-
-  async function pickPaymasterCapable(): Promise<EIP1193Provider | null> {
-    if (!paymasterProxy) return null;
-
-    for (const p of candidates) {
-      try {
-        const accounts = (await p.request({
-          method: "eth_accounts",
-        })) as string[];
-        const from = accounts?.[0] as `0x${string}` | undefined;
-        if (!from) continue;
-
-        const caps = (await p.request({
-          method: "wallet_getCapabilities",
-          params: [from],
-        })) as any;
-
-        // Some wallets key this by hex chainId, others by decimal.
-        const chainIdKeyDec = chainIdDec;
-        const cap =
-          caps?.[chainIdHex] ??
-          caps?.[chainIdKeyDec] ??
-          caps?.[String(chainIdKeyDec)];
-
-        if (cap?.paymasterService?.supported === true) return p;
-      } catch {
-        // ignore and try next candidate
-      }
-    }
-    return null;
-  }
-
-  const paymasterProvider = await pickPaymasterCapable();
-  if (paymasterProvider) return paymasterProvider;
-
-  // Otherwise, preserve the original priority: Farcaster provider first, then injected.
-  return farcasterProvider ?? injectedProvider ?? candidates[0];
+  return null;
 }
 
+export async function getEvmProvider(): Promise<EIP1193Provider | null> {
+  if (typeof window === "undefined") return null;
+
+  // 1) Base Account first: required for paymasterService + best UX in Base App.
+  const baseAccount = await getBaseAccountProvider();
+  if (baseAccount) return baseAccount;
+
+  // 2) Farcaster provider fallback.
+  const farcaster = await getFarcasterProvider();
+  if (farcaster) return farcaster;
+
+  // 3) Injected provider fallback.
+  const injected = (window as any)?.ethereum;
+  if (injected && typeof injected.request === "function") {
+    return injected as EIP1193Provider;
+  }
+
+  return null;
+}
 
 export async function ensureChain(provider: EIP1193Provider, chainIdDec: number) {
   const wanted = "0x" + chainIdDec.toString(16);
 
-  // Some in-app wallets (incl. some Farcaster clients) implement only a subset of
-  // EIP-1193 methods. We treat missing methods as "no programmatic switching".
-  // Users can still manually switch in-wallet.
   let currentHex: string;
   try {
     const raw = await provider.request({ method: "eth_chainId" });
@@ -96,7 +101,7 @@ export async function ensureChain(provider: EIP1193Provider, chainIdDec: number)
     }
   } catch {
     throw new Error(
-      "This wallet provider doesn't support eth_chainId. Please open your wallet settings and ensure you're on Base."
+      "This wallet provider doesn't support eth_chainId. Please ensure you're on Base."
     );
   }
 
@@ -109,10 +114,9 @@ export async function ensureChain(provider: EIP1193Provider, chainIdDec: number)
     });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
-    // Common "method not found / not supported" cases.
     if (e?.code === -32601 || /does not support|not support|Method not found/i.test(msg)) {
       throw new Error(
-        `Please switch your wallet network to Base (chainId ${chainIdDec}). This wallet doesn't support programmatic network switching.`
+        `Please switch your wallet network to Base (chainId ${chainIdDec}). This wallet doesn't support programmatic switching.`
       );
     }
     throw e;
