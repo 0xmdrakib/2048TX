@@ -32,14 +32,7 @@ export async function GET(req: Request) {
 
   const redis = getRedis();
   if (!redis) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Redis not configured" }, { status: 500 });
   }
   const now = Math.floor(Date.now() / 1000);
 
@@ -51,14 +44,12 @@ export async function GET(req: Request) {
   let missing = 0;
 
   for (const member of members) {
-    const [fidStr, appFidStr] = member.split(":");
-    const fid = Number(fidStr);
-    const appFid = Number(appFidStr);
-    if (!Number.isFinite(fid) || !Number.isFinite(appFid)) continue;
-
-    const rec = await loadNotification(redis, fid, appFid);
+    // loadNotification expects a memberId string like "fid:appFid"
+    const rec = await loadNotification(redis, member);
     if (!rec) {
       missing++;
+      // Keep the zset clean if it contains a member without a backing record.
+      await redis.zrem(NOTIF_KEYS.dueZ, member);
       continue;
     }
 
@@ -66,10 +57,10 @@ export async function GET(req: Request) {
     rec.nextSendAt = now + hours * 60 * 60;
     rec.updatedAt = now;
 
-    await redis.set(NOTIF_KEYS.user(fid, appFid), JSON.stringify(rec));
+    await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
     await redis.zadd(NOTIF_KEYS.dueZ, {
       score: rec.nextSendAt,
-      member: `${fid}:${appFid}`,
+      member,
     });
     updated++;
   }
