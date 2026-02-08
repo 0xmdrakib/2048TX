@@ -230,6 +230,13 @@ async function getFarcasterProvider(): Promise<EIP1193Provider | null> {
 
   try {
     const { sdk } = await import("@farcaster/miniapp-sdk");
+
+    // IMPORTANT: only use the Farcaster Mini App wallet provider when actually
+    // running inside a mini app. In a normal browser context, the SDK can exist
+    // but the wallet provider (if returned) may be incomplete (e.g. missing
+    // eth_chainId), which would break web injected wallets.
+    const inMiniApp = await sdk.isInMiniApp();
+    if (!inMiniApp) return null;
     const raw = await sdk.wallet.getEthereumProvider();
 
     if (raw && typeof (raw as any).request === "function") {
@@ -301,22 +308,53 @@ export async function ensureChain(provider: EIP1193Provider, chainIdDec: number)
     }
   };
 
-  let currentHex: string;
-  try {
-    const raw = await provider.request({ method: "eth_chainId" });
-
-    // Most providers return a hex string ("0x2105"), but some return decimal strings.
+  const toHexChainId = (raw: unknown): string | null => {
     if (typeof raw === "string") {
-      currentHex = raw.startsWith("0x") ? raw : "0x" + Number(raw).toString(16);
-    } else if (typeof raw === "number") {
-      currentHex = "0x" + raw.toString(16);
-    } else {
-      currentHex = String(raw);
+      // Most providers return hex ("0x2105"), but some return decimal strings.
+      if (raw.startsWith("0x")) return raw;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return null;
+      return "0x" + n.toString(16);
     }
+    if (typeof raw === "number") return "0x" + raw.toString(16);
+    return null;
+  };
+
+  let currentHex: string | null = null;
+  try {
+    currentHex = toHexChainId(await provider.request({ method: "eth_chainId" }));
   } catch {
-    throw new Error(
-      "This wallet provider doesn't support eth_chainId. Please ensure you're on Base."
-    );
+    // Some providers (or some locked/partially-initialized environments) may not expose
+    // eth_chainId until after a connect prompt. Try common fallbacks before failing.
+    try {
+      currentHex = toHexChainId(await provider.request({ method: "net_version" }));
+    } catch {
+      // ignore
+    }
+
+    const p: any = provider as any;
+    if (!currentHex && p?.chainId != null) currentHex = toHexChainId(p.chainId);
+    if (!currentHex && p?.networkVersion != null) currentHex = toHexChainId(p.networkVersion);
+
+    // If we still can't read the chainId, try switching directly.
+    if (!currentHex) {
+      try {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: wanted }],
+        });
+        return;
+      } catch (e: any) {
+        if (await maybeAddBaseMainnet(e)) return;
+        const msg = String(e?.message ?? e);
+        if (e?.code === -32601 || /does not support|not support|Method not found/i.test(msg)) {
+          throw new Error(
+            `Please switch your wallet network to Base (chainId ${chainIdDec}). This wallet doesn't support programmatic switching.`
+          );
+        }
+        throw new Error("Unable to determine or switch chain. Please open your wallet and switch to Base.");
+      }
+    }
   }
 
   if (currentHex?.toLowerCase() === wanted.toLowerCase()) return;
