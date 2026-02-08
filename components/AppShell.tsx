@@ -14,7 +14,15 @@ import { hasMoves, move, newGame, spawnRandomTile, type Direction } from "@/lib/
 import type { ThemeId } from "@/lib/themes";
 import { formatMicroUsdc, shorten } from "@/lib/format";
 import { randomMicroUsdc } from "@/lib/randomAmount";
-import { getEvmProvider, ensureChain, getAccount, requestAccount } from "@/lib/provider";
+import {
+  getEvmProvider,
+  ensureChain,
+  getAccount,
+  requestAccount,
+  listInjectedWallets,
+  getPreferredInjectedWalletId,
+  setPreferredInjectedWalletId,
+} from "@/lib/provider";
 import { sendUsdcTransfer } from "@/lib/usdcTransfer";
 import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
@@ -66,6 +74,11 @@ export default function AppShell() {
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Web-only injected wallet selection (EIP-6963). Mini app providers bypass this.
+  const [walletPickerOpen, setWalletPickerOpen] = useState(false);
+  const [walletChoices, setWalletChoices] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [walletChoicesLoading, setWalletChoicesLoading] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
 
@@ -236,7 +249,7 @@ const acct = await getAccount(provider);
     refreshOnchainBest();
   }, [refreshOnchainBest]);
 
-  const connect = useCallback(async () => {
+  const doConnect = useCallback(async () => {
     const p = await getEvmProvider();
     if (!p) {
       setToast({ message: "No wallet provider found in this client." });
@@ -261,6 +274,34 @@ try {
       setTimeout(() => setToast(null), 2500);
     }
   }, [chainId, contract]);
+
+  const connect = useCallback(async () => {
+    // On normal web (outside Farcaster/Base app), support multi injected wallets.
+    // If multiple injected wallets exist and the user hasn't chosen one yet, show a picker.
+    let inMiniApp = false;
+    try {
+      const { sdk } = await import("@farcaster/miniapp-sdk");
+      inMiniApp = await sdk.isInMiniApp();
+    } catch {
+      inMiniApp = false;
+    }
+
+    if (!inMiniApp && !getPreferredInjectedWalletId()) {
+      try {
+        setWalletChoicesLoading(true);
+        const wallets = await listInjectedWallets({ forceRefresh: true, timeoutMs: 250 });
+        if (wallets.length > 1) {
+          setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name })));
+          setWalletPickerOpen(true);
+          return;
+        }
+      } finally {
+        setWalletChoicesLoading(false);
+      }
+    }
+
+    await doConnect();
+  }, [doConnect]);
 
   const checkGameOver = useCallback(
     (b: typeof board) => {
@@ -738,6 +779,76 @@ try {
           </div>
         ) : null}
       </div>
+
+      <Sheet
+        open={walletPickerOpen}
+        title="Choose wallet"
+        onClose={() => {
+          setWalletPickerOpen(false);
+          setWalletChoices(null);
+        }}
+      >
+        <div className="text-xs opacity-70">
+          Multiple browser wallets detected. Pick one to use on Base Mainnet.
+        </div>
+
+        <div className="mt-3 space-y-2">
+          {walletChoicesLoading ? (
+            <div className="text-sm">Looking for wallets…</div>
+          ) : null}
+
+          {walletChoices?.map((w) => (
+            <Button
+              key={w.id}
+              variant="outline"
+              className="w-full justify-between"
+              onClick={() => {
+                setPreferredInjectedWalletId(w.id);
+                setWalletPickerOpen(false);
+                setWalletChoices(null);
+                void doConnect();
+              }}
+            >
+              <span className="truncate">{w.name}</span>
+              <span className="ml-3 shrink-0 font-mono text-[11px] opacity-60">
+                {w.id.startsWith("eip6963:") ? w.id.slice("eip6963:".length) : w.id}
+              </span>
+            </Button>
+          ))}
+
+          {walletChoices && walletChoices.length === 0 && !walletChoicesLoading ? (
+            <div className="text-sm">No injected wallets found.</div>
+          ) : null}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setPreferredInjectedWalletId(null);
+              setWalletPickerOpen(false);
+              setWalletChoices(null);
+            }}
+          >
+            Cancel
+          </Button>
+
+          {getPreferredInjectedWalletId() ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setPreferredInjectedWalletId(null);
+                setToast({ message: "Wallet selection cleared" });
+                setTimeout(() => setToast(null), 1400);
+              }}
+            >
+              Clear saved wallet
+            </Button>
+          ) : null}
+        </div>
+      </Sheet>
 
       <ThemePicker
         open={themeOpen}
