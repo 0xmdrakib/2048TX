@@ -1,4 +1,5 @@
 import type { EIP1193Provider } from "./types";
+import { appendErc8021Suffix } from "./builderCodes";
 
 type JsonRpcError = { code?: number; message?: string };
 
@@ -57,6 +58,8 @@ async function sendCalls(params: {
   calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
   paymasterProxyUrl: string;
 }): Promise<unknown> {
+  const callsWithSuffix = params.calls.map((c) => ({ ...c, data: appendErc8021Suffix(c.data) }));
+
   // Try newer shape first (some wallets want this),
   // then fall back to the simpler 1.0 style used in Base docs.
   try {
@@ -67,7 +70,7 @@ async function sendCalls(params: {
           version: "2.0.0",
           chainId: params.chainIdHex,
           from: params.from,
-          calls: params.calls,
+          calls: callsWithSuffix,
           atomicRequired: true,
           capabilities: {
             paymasterService: { url: params.paymasterProxyUrl },
@@ -90,7 +93,7 @@ async function sendCalls(params: {
           version: "1.0",
           chainId: params.chainIdHex,
           from: params.from,
-          calls: params.calls,
+          calls: callsWithSuffix,
           capabilities: {
             paymasterService: { url: params.paymasterProxyUrl },
           },
