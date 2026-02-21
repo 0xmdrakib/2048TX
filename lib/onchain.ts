@@ -1,4 +1,5 @@
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
+import { appendErc8021Suffix } from "./builderCodes";
 import type { EIP1193Provider } from "./types";
 import { supportsPaymaster, sendSponsoredCallsAndGetTxHash } from "./gasless";
 
@@ -198,7 +199,7 @@ export async function submitScore(params: {
       {
         from: params.from,
         to: params.contract,
-        data,
+        data: appendErc8021Suffix(data),
         value: "0x0",
       },
     ],
