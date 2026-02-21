@@ -1,4 +1,5 @@
 import { encodeFunctionData, parseAbi } from "viem";
+import { appendErc8021Suffix } from "./builderCodes";
 import type { EIP1193Provider } from "./types";
 
 // Native USDC on Base mainnet (decimals = 6)
@@ -26,7 +27,7 @@ export async function sendUsdcTransfer(params: {
       {
         from: params.from,
         to: BASE_USDC_ADDRESS,
-        data,
+        data: appendErc8021Suffix(data),
         value: "0x0",
       },
     ],
