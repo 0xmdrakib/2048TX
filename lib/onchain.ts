@@ -1,7 +1,7 @@
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 import { appendErc8021Suffix } from "./builderCodes";
 import type { EIP1193Provider } from "./types";
-import { getWalletCallSupport, isMetaMaskProvider, sendSponsoredCallsAndGetTxHash } from "./gasless";
+import { supportsPaymaster, sendSponsoredCallsAndGetTxHash } from "./gasless";
 
 const abi = parseAbi([
   "function best(address) view returns (uint32)",
@@ -54,14 +54,18 @@ export async function getBestScore(params: {
 
   let res: string;
   try {
+    // Some embedded providers may hang (resolve very slowly) on eth_call.
+    // We apply a short timeout and fall back to a public RPC.
     res = (await requestWithTimeout(
       params.provider.request({
         method: "eth_call",
         params: [{ to: params.contract, data }, "latest"],
       }) as Promise<string>,
-      5_000,
+      5_000
     )) as string;
   } catch (e) {
+    // Some embedded providers don't implement the full JSON-RPC surface.
+    // If the method is unsupported OR the call timed out, fall back to RPC.
     if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
     res = (await rpcRequest("eth_call", [{ to: params.contract, data }, "latest"])) as string;
   }
@@ -93,7 +97,7 @@ export async function getSubmissions(params: {
         method: "eth_call",
         params: [{ to: params.contract, data }, "latest"],
       }) as Promise<string>,
-      5_000,
+      5_000
     )) as string;
   } catch (e) {
     if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
@@ -121,54 +125,36 @@ export async function submitScore(params: {
     args: [params.score],
   });
 
+  // 1) Try sponsored path using the current provider.
+  // IMPORTANT: do NOT silently fall back to a paid tx if the wallet *supports* paymaster
+  // but sponsorship fails (wrong allowlist signature, bad proxy URL, CDP policy, etc.).
+  // We want that failure visible so you can fix the real issue.
   const paymasterProxyUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
-
-  // Primary path: wallet-native EIP-5792 + ERC-7677 sponsorship.
-  // For MetaMask, we also try wallet_sendCalls when atomic batching is available
-  // (or capability probing is inconclusive), because the smart-account upgrade is
-  // triggered by EIP-5792/EIP-7702-ready dapps and silent fallback here would
-  // always force the user into a normal paid transaction.
   if (paymasterProxyUrl) {
     const chainIdHex = (await params.provider.request({
       method: "eth_chainId",
       params: [],
     })) as `0x${string}`;
 
-    const support = await getWalletCallSupport({
+    const canSponsor = await supportsPaymaster({
       provider: params.provider,
       from: params.from,
       chainIdHex,
     });
 
-    const isMetaMask = isMetaMaskProvider(params.provider);
-    const shouldTryWalletCalls =
-      support.paymasterSupported ||
-      (isMetaMask && support.atomicStatus !== "unsupported");
-
-    if (shouldTryWalletCalls) {
-      try {
-        return await sendSponsoredCallsAndGetTxHash({
-          provider: params.provider,
-          chainIdHex,
-          from: params.from,
-          calls: [{ to: params.contract, value: "0x0", data }],
-        });
-      } catch (e) {
-        if (isMetaMask) {
-          const msg = String((e as any)?.message ?? e);
-          throw new Error(
-            /wallet_sendCalls|wallet_getCallsStatus|paymaster/i.test(msg)
-              ? "MetaMask did not accept the sponsored smart-account call. In MetaMask, enable Smart Accounts and make sure Base is using MetaMask's default RPC, then try again."
-              : msg || "MetaMask sponsored smart-account call failed."
-          );
-        }
-        throw e;
-      }
+    if (canSponsor) {
+      return await sendSponsoredCallsAndGetTxHash({
+        provider: params.provider,
+        chainIdHex,
+        from: params.from,
+        calls: [{ to: params.contract, value: "0x0", data }],
+      });
     }
   }
 
-  // Secondary path: if we're inside a Base App / wallet webview, there may be a second
-  // injected provider on window.ethereum that supports wallet_sendCalls for the same account.
+  // 2) If we're inside a Base App / wallet webview, there is often a second provider on window.ethereum
+  // that supports paymasterService + wallet_sendCalls. We only use it if it already has the same account
+  // (so we don't trigger an extra connect prompt).
   try {
     if (typeof window !== "undefined") {
       const eth = (window as any)?.ethereum as EIP1193Provider | undefined;
@@ -179,19 +165,19 @@ export async function submitScore(params: {
           Array.isArray(accounts) &&
           accounts.some((a) => a?.toLowerCase?.() === params.from.toLowerCase());
 
-        if (hasSameAccount && paymasterProxyUrl) {
+        if (hasSameAccount) {
           const chainIdHex = (await eth.request({
             method: "eth_chainId",
             params: [],
           })) as `0x${string}`;
 
-          const support = await getWalletCallSupport({
+          const canSponsor = await supportsPaymaster({
             provider: eth,
             from: params.from,
             chainIdHex,
           });
 
-          if (support.paymasterSupported) {
+          if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
             return await sendSponsoredCallsAndGetTxHash({
               provider: eth,
               chainIdHex,
@@ -206,13 +192,7 @@ export async function submitScore(params: {
     // ignore and fall back to normal tx
   }
 
-  if (isMetaMaskProvider(params.provider) && paymasterProxyUrl) {
-    throw new Error(
-      "MetaMask same-address gasless is not available on this setup right now, so the app stopped before charging you gas. In MetaMask, enable Smart Accounts and use Base's default RPC, then try again."
-    );
-  }
-
-  // Fallback: normal EOA tx (costs gas).
+  // 3) Fallback: normal EOA-style tx (will cost gas)
   const txHash = (await params.provider.request({
     method: "eth_sendTransaction",
     params: [
@@ -228,6 +208,7 @@ export async function submitScore(params: {
   return txHash;
 }
 
+
 export async function waitForReceipt(params: {
   provider: EIP1193Provider;
   txHash: `0x${string}`;
@@ -236,8 +217,13 @@ export async function waitForReceipt(params: {
   const timeoutMs = params.timeoutMs ?? 60_000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    // NOTE:
+    // Some embedded wallet providers (notably in-app smart wallets) may *support*
+    // eth_getTransactionReceipt but keep returning `null` even after the tx is mined.
+    // In those cases, querying a public RPC is more reliable.
     let receipt: any = null;
 
+    // 1) Try via the provider first.
     try {
       receipt = await params.provider.request({
         method: "eth_getTransactionReceipt",
@@ -245,9 +231,11 @@ export async function waitForReceipt(params: {
       });
     } catch (e) {
       if (!methodUnsupported(e)) throw e;
+      // If the method is missing, we'll fall back to RPC below.
     }
     if (receipt) return receipt;
 
+    // 2) Always attempt via RPC as a fallback (even if provider returned null).
     try {
       receipt = await rpcRequest("eth_getTransactionReceipt", [params.txHash]);
     } catch {
