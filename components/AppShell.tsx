@@ -24,7 +24,7 @@ import {
   setPreferredInjectedWalletId,
 } from "@/lib/provider";
 import { sendUsdcTransfer } from "@/lib/usdcTransfer";
-import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
+import { getBestScore, getSubmissions, resolveScoreAddress, submitScore, waitForReceipt } from "@/lib/onchain";
 import { useSwipe } from "@/lib/useSwipe";
 
 type Mode = "classic" | "pay";
@@ -72,6 +72,7 @@ export default function AppShell() {
 
   const [providerReady, setProviderReady] = useState(false);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
+  const [scoreAddress, setScoreAddress] = useState<`0x${string}` | null>(null);
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -93,10 +94,11 @@ export default function AppShell() {
   const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
 
   const myLeaderboardRank = useMemo(() => {
-    if (!address || !leaderboard) return null;
-    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === address.toLowerCase());
+    const me = scoreAddress ?? address;
+    if (!me || !leaderboard) return null;
+    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === me.toLowerCase());
     return idx >= 0 ? idx + 1 : null;
-  }, [address, leaderboard]);
+  }, [address, scoreAddress, leaderboard]);
 
   // SDK ready (Farcaster mini apps show splash until ready())
   useEffect(() => {
@@ -264,7 +266,9 @@ try {
       const acct = await requestAccount(provider);
       setAddress(acct);
       if (contract) {
-        const best = await getBestScore({ provider, contract, address: acct });
+        const scoreAcct = await resolveScoreAddress({ provider, eoaAddress: acct, chainIdDec: chainId });
+        setScoreAddress(scoreAcct);
+        const best = await getBestScore({ provider, contract, address: scoreAcct });
         setOnchainBest(best);
       }
       setToast({ message: "Wallet connected" });
@@ -471,11 +475,14 @@ try {
       }
       setAddress(acct);
 
+      const scoreAcct = await resolveScoreAddress({ provider, eoaAddress: acct, chainIdDec: chainId });
+      setScoreAddress(scoreAcct);
+
       // Capture the current submissions count so we can confirm success even if
       // the embedded provider is flaky about receipts.
       let prevSubmissions: number | null = null;
       try {
-        prevSubmissions = await getSubmissions({ provider, contract, address: acct });
+        prevSubmissions = await getSubmissions({ provider, contract, address: scoreAcct });
       } catch {
         // non-fatal
       }
@@ -530,7 +537,7 @@ try {
           const started = Date.now();
           while (Date.now() - started < 120_000) {
             try {
-              const subsNow = await getSubmissions({ provider, contract, address: acct });
+              const subsNow = await getSubmissions({ provider, contract, address: scoreAcct });
               if (subsNow > prevSubmissions) return subsNow;
             } catch {
               // ignore and retry
@@ -556,7 +563,7 @@ try {
       // Refresh best in the background (non-blocking).
       void (async () => {
         try {
-          const best = await getBestScore({ provider, contract, address: acct });
+          const best = await getBestScore({ provider, contract, address: scoreAcct });
           setOnchainBest(best);
         } catch {
           // Non-fatal: the tx is saved even if we can't refresh best right now.
@@ -724,9 +731,14 @@ try {
         <div className="mt-3 flex items-center justify-between">
           <div className="text-xs text-[var(--muted)]">
             {address ? (
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex flex-wrap items-center gap-2">
                 <Wallet className="h-3.5 w-3.5" />
                 {shorten(address)}
+                {scoreAddress && scoreAddress.toLowerCase() !== address.toLowerCase() ? (
+                  <span className="rounded-full border border-[var(--cardBorder)] px-2 py-0.5 font-mono text-[10px] opacity-80">
+                    gasless score: {shorten(scoreAddress)}
+                  </span>
+                ) : null}
               </span>
             ) : providerReady ? (
               <span>Wallet not connected</span>
@@ -876,11 +888,11 @@ try {
           </Button>
         </div>
 
-        {address ? (
+        {(scoreAddress ?? address) ? (
           <div className="mt-2">
             <Chip className="border-emerald-400/40 bg-emerald-500/10">
               <span className="font-semibold">You</span>
-              <span className="font-mono text-[11px]">{shorten(address)}</span>
+              <span className="font-mono text-[11px]">{shorten(scoreAddress ?? address!)}</span>
               <span className="opacity-60">•</span>
               <span className="font-semibold">
                 {leaderboardLoading
@@ -904,7 +916,8 @@ try {
 
         <div className="mt-3 max-h-[60vh] space-y-2 overflow-auto">
           {(leaderboard ?? []).map((e, i) => {
-            const isMe = !!address && e.address.toLowerCase() === address.toLowerCase();
+            const me = scoreAddress ?? address;
+            const isMe = !!me && e.address.toLowerCase() === me.toLowerCase();
             return (
               <div
                 key={e.address}
