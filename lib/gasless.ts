@@ -3,7 +3,12 @@ import { appendErc8021Suffix } from "./builderCodes";
 
 type JsonRpcError = { code?: number; message?: string };
 
-type AtomicCapabilityStatus = "supported" | "ready" | null;
+type WalletCapabilities = Record<string, any>;
+
+type WalletCallSupport = {
+  paymasterSupported: boolean;
+  atomicStatus: "supported" | "ready" | "unsupported" | null;
+};
 
 function isUserRejected(e: unknown): boolean {
   const err = e as any;
@@ -29,36 +34,63 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function getCapabilities(params: {
+async function getWalletCapabilities(params: {
   provider: EIP1193Provider;
   from: `0x${string}`;
   chainIdHex: `0x${string}`;
-}): Promise<any | null> {
-  let caps: any = null;
+}): Promise<WalletCapabilities | null> {
+  const attempts: Array<any[]> = [
+    [params.from, [params.chainIdHex]],
+    [params.from],
+    [],
+  ];
 
-  try {
-    caps = (await params.provider.request({
-      method: "wallet_getCapabilities",
-      // MetaMask docs show [address, [chainIds]]. Some wallets ignore the 2nd arg.
-      params: [params.from, [params.chainIdHex]],
-    })) as any;
-  } catch (e) {
-    if (methodUnsupported(e)) return null;
+  for (const rpcParams of attempts) {
     try {
-      caps = (await params.provider.request({
+      const caps = (await params.provider.request({
         method: "wallet_getCapabilities",
-        params: [params.from],
-      })) as any;
-    } catch (e2) {
-      if (methodUnsupported(e2)) return null;
-      return null;
+        params: rpcParams,
+      })) as WalletCapabilities;
+
+      if (caps && typeof caps === "object") return caps;
+    } catch (e) {
+      if (methodUnsupported(e)) return null;
+      // Different wallets accept different param shapes. Try the next one.
+      continue;
     }
   }
 
+  return null;
+}
+
+export async function getWalletCallSupport(params: {
+  provider: EIP1193Provider;
+  from: `0x${string}`;
+  chainIdHex: `0x${string}`;
+}): Promise<WalletCallSupport> {
+  const caps = await getWalletCapabilities(params);
+  if (!caps) {
+    return { paymasterSupported: false, atomicStatus: null };
+  }
+
   const chainIdDec = Number.parseInt(params.chainIdHex, 16);
-  const byHex = caps?.[params.chainIdHex];
-  const byDec = caps?.[chainIdDec] ?? caps?.[String(chainIdDec)];
-  return byHex ?? byDec ?? null;
+  const cap =
+    caps?.[params.chainIdHex] ??
+    caps?.[chainIdDec] ??
+    caps?.[String(chainIdDec)] ??
+    caps?.["0x0"] ??
+    null;
+
+  const atomicRaw = cap?.atomic?.status ?? cap?.atomic?.supported ?? null;
+  const atomicStatus =
+    atomicRaw === "supported" || atomicRaw === "ready" || atomicRaw === "unsupported"
+      ? atomicRaw
+      : null;
+
+  return {
+    paymasterSupported: cap?.paymasterService?.supported === true,
+    atomicStatus,
+  };
 }
 
 export async function supportsPaymaster(params: {
@@ -66,19 +98,8 @@ export async function supportsPaymaster(params: {
   from: `0x${string}`;
   chainIdHex: `0x${string}`;
 }): Promise<boolean> {
-  const cap = await getCapabilities(params);
-  return cap?.paymasterService?.supported === true;
-}
-
-export async function getAtomicCapabilityStatus(params: {
-  provider: EIP1193Provider;
-  from: `0x${string}`;
-  chainIdHex: `0x${string}`;
-}): Promise<AtomicCapabilityStatus> {
-  const cap = await getCapabilities(params);
-  const status = cap?.atomic?.status;
-  if (status === "supported" || status === "ready") return status;
-  return null;
+  const support = await getWalletCallSupport(params);
+  return support.paymasterSupported === true;
 }
 
 async function sendCalls(params: {
@@ -86,61 +107,74 @@ async function sendCalls(params: {
   chainIdHex: `0x${string}`;
   from: `0x${string}`;
   calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
-  paymasterProxyUrl?: string;
+  paymasterProxyUrl: string;
 }): Promise<unknown> {
   const callsWithSuffix = params.calls.map((c) => ({ ...c, data: appendErc8021Suffix(c.data) }));
 
-  const baseRequest: Record<string, unknown> = {
-    version: "2.0.0",
-    chainId: params.chainIdHex,
-    from: params.from,
-    calls: callsWithSuffix,
-    atomicRequired: true,
-  };
-
-  if (params.paymasterProxyUrl) {
-    baseRequest.capabilities = {
-      paymasterService: { url: params.paymasterProxyUrl },
-    };
-  }
-
+  // Try newer shape first (some wallets want this),
+  // then fall back to the simpler 1.0 style used in Base / EIP-5792 docs.
   try {
     return (await params.provider.request({
       method: "wallet_sendCalls",
-      params: [baseRequest],
+      params: [
+        {
+          version: "2.0.0",
+          chainId: params.chainIdHex,
+          from: params.from,
+          calls: callsWithSuffix,
+          atomicRequired: true,
+          capabilities: {
+            paymasterService: { url: params.paymasterProxyUrl },
+          },
+        },
+      ],
     })) as any;
   } catch (e) {
+    // If the user rejects the wallet prompt, do NOT retry.
     if (isUserRejected(e)) throw e;
     if (!isInvalidParams(e)) throw e;
 
-    const fallbackRequest: Record<string, unknown> = {
-      version: "1.0",
-      chainId: params.chainIdHex,
-      from: params.from,
-      calls: callsWithSuffix,
-    };
-
-    if (params.paymasterProxyUrl) {
-      fallbackRequest.capabilities = {
-        paymasterService: { url: params.paymasterProxyUrl },
-      };
-    }
-
     return (await params.provider.request({
       method: "wallet_sendCalls",
-      params: [fallbackRequest],
+      params: [
+        {
+          version: "1.0",
+          chainId: params.chainIdHex,
+          from: params.from,
+          calls: callsWithSuffix,
+          capabilities: {
+            paymasterService: { url: params.paymasterProxyUrl },
+          },
+        },
+      ],
     })) as any;
   }
 }
 
-async function waitForCallsTxHash(params: {
+export async function sendSponsoredCallsAndGetTxHash(params: {
   provider: EIP1193Provider;
-  callsIdRaw: unknown;
+  chainIdHex: `0x${string}`;
+  from: `0x${string}`;
+  calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
   timeoutMs?: number;
 }): Promise<`0x${string}`> {
-  let callsId: unknown = params.callsIdRaw;
-  if (typeof params.callsIdRaw !== "string" && params.callsIdRaw && typeof params.callsIdRaw === "object") {
-    const obj = params.callsIdRaw as Record<string, unknown>;
+  const paymasterProxyUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
+  if (!paymasterProxyUrl) {
+    throw new Error("Missing NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL");
+  }
+
+  const callsIdRaw: unknown = await sendCalls({
+    provider: params.provider,
+    chainIdHex: params.chainIdHex,
+    from: params.from,
+    calls: params.calls,
+    paymasterProxyUrl,
+  });
+
+  // Some wallets return the id directly as a string; others return an object.
+  let callsId: unknown = callsIdRaw;
+  if (typeof callsIdRaw !== "string" && callsIdRaw && typeof callsIdRaw === "object") {
+    const obj = callsIdRaw as Record<string, unknown>;
     callsId = obj.id ?? obj.result ?? obj.callsId;
   }
 
@@ -166,6 +200,8 @@ async function waitForCallsTxHash(params: {
     }
 
     const code = Number(status?.status ?? 0);
+
+    // 100 = pending; 200 = success; 4xx/5xx/6xx = failures per EIP-5792/Base docs.
     if (code === 100) {
       await sleep(1200);
       continue;
@@ -181,53 +217,5 @@ async function waitForCallsTxHash(params: {
     throw new Error(`Sponsored batch failed (status=${code})`);
   }
 
-  throw new Error("Timed out waiting for transaction");
-}
-
-export async function sendSponsoredCallsAndGetTxHash(params: {
-  provider: EIP1193Provider;
-  chainIdHex: `0x${string}`;
-  from: `0x${string}`;
-  calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
-  timeoutMs?: number;
-}): Promise<`0x${string}`> {
-  const paymasterProxyUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
-  if (!paymasterProxyUrl) {
-    throw new Error("Missing NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL");
-  }
-
-  const callsIdRaw = await sendCalls({
-    provider: params.provider,
-    chainIdHex: params.chainIdHex,
-    from: params.from,
-    calls: params.calls,
-    paymasterProxyUrl,
-  });
-
-  return await waitForCallsTxHash({
-    provider: params.provider,
-    callsIdRaw,
-    timeoutMs: params.timeoutMs,
-  });
-}
-
-export async function sendAtomicCallsAndGetTxHash(params: {
-  provider: EIP1193Provider;
-  chainIdHex: `0x${string}`;
-  from: `0x${string}`;
-  calls: Array<{ to: `0x${string}`; value: `0x${string}`; data: `0x${string}` }>;
-  timeoutMs?: number;
-}): Promise<`0x${string}`> {
-  const callsIdRaw = await sendCalls({
-    provider: params.provider,
-    chainIdHex: params.chainIdHex,
-    from: params.from,
-    calls: params.calls,
-  });
-
-  return await waitForCallsTxHash({
-    provider: params.provider,
-    callsIdRaw,
-    timeoutMs: params.timeoutMs,
-  });
+  throw new Error("Timed out waiting for sponsored transaction");
 }
