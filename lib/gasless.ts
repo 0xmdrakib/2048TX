@@ -10,6 +10,10 @@ type WalletCallSupport = {
   atomicStatus: "supported" | "ready" | "unsupported" | null;
 };
 
+export function isMetaMaskProvider(provider: EIP1193Provider): boolean {
+  return Boolean((provider as any)?.isMetaMask);
+}
+
 function isUserRejected(e: unknown): boolean {
   const err = e as any;
   const code = err?.code ?? err?.data?.code;
