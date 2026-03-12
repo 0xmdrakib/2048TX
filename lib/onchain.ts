@@ -11,20 +11,6 @@ const abi = parseAbi([
 ]);
 
 type JsonRpcError = { code?: number; message?: string };
-type Address = `0x${string}`;
-type TxHash = `0x${string}`;
-
-type SmartAccountBundle = {
-  account: any;
-  bundlerClient: {
-    sendUserOperation: (args: {
-      account: unknown;
-      calls: Array<{ to: Address; data: `0x${string}`; value: bigint }>;
-      paymaster?: boolean;
-    }) => Promise<`0x${string}`>;
-    waitForUserOperationReceipt: (args: { hash: `0x${string}` }) => Promise<any>;
-  };
-};
 
 function methodUnsupported(e: unknown) {
   const err = e as JsonRpcError;
@@ -55,147 +41,10 @@ async function requestWithTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-function getRpcUrl(chainIdDec: number) {
-  if (process.env.NEXT_PUBLIC_BASE_RPC_URL) return process.env.NEXT_PUBLIC_BASE_RPC_URL;
-  return chainIdDec === 84532 ? "https://sepolia.base.org" : "https://mainnet.base.org";
-}
-
-function getBundlerProxyUrl() {
-  return process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL || null;
-}
-
-async function getChainIdDec(provider: EIP1193Provider) {
-  const chainIdHex = (await provider.request({
-    method: "eth_chainId",
-    params: [],
-  })) as `0x${string}`;
-
-  return Number.parseInt(chainIdHex, 16);
-}
-
-async function getBaseChain(chainIdDec: number) {
-  const { base, baseSepolia } = await import("viem/chains");
-  return chainIdDec === 84532 ? baseSepolia : base;
-}
-
-async function get4337Bundle(params: {
-  provider: EIP1193Provider;
-  chainIdDec: number;
-}): Promise<SmartAccountBundle | null> {
-  const bundlerUrl = getBundlerProxyUrl();
-  if (!bundlerUrl) return null;
-
-  const [{ createPublicClient, http }, { createBundlerClient }, { toSimpleSmartAccount }] =
-    await Promise.all([
-      import("viem"),
-      import("viem/account-abstraction"),
-      import("permissionless/accounts"),
-    ]);
-
-  const chain = await getBaseChain(params.chainIdDec);
-
-  const client = createPublicClient({
-    chain,
-    transport: http(getRpcUrl(params.chainIdDec)),
-  });
-
-  const account = await toSimpleSmartAccount({
-    client,
-    owner: params.provider as any,
-  });
-
-  const bundlerClient = createBundlerClient({
-    account,
-    client,
-    chain,
-    transport: http(bundlerUrl),
-    paymaster: true,
-  });
-
-  return {
-    account,
-    bundlerClient: bundlerClient as SmartAccountBundle["bundlerClient"],
-  };
-}
-
-async function supportsAlternateWindowPaymaster(params: {
-  provider: EIP1193Provider;
-  from: Address;
-}) {
-  if (typeof window === "undefined") return null;
-
-  const eth = (window as any)?.ethereum as EIP1193Provider | undefined;
-  if (!eth || eth === params.provider || typeof (eth as any).request !== "function") return null;
-
-  const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
-  const hasSameAccount =
-    Array.isArray(accounts) &&
-    accounts.some((a) => a?.toLowerCase?.() === params.from.toLowerCase());
-
-  if (!hasSameAccount) return null;
-
-  const chainIdHex = (await eth.request({
-    method: "eth_chainId",
-    params: [],
-  })) as `0x${string}`;
-
-  const canSponsor = await supportsPaymaster({
-    provider: eth,
-    from: params.from,
-    chainIdHex,
-  });
-
-  if (!canSponsor) return null;
-
-  return { provider: eth, chainIdHex };
-}
-
-export async function resolveScoreAddress(params: {
-  provider: EIP1193Provider;
-  eoaAddress: Address;
-  chainIdDec?: number;
-}): Promise<Address> {
-  const bundlerUrl = getBundlerProxyUrl();
-  if (!bundlerUrl) return params.eoaAddress;
-
-  const chainIdDec = params.chainIdDec ?? (await getChainIdDec(params.provider));
-  const chainIdHex = `0x${chainIdDec.toString(16)}` as `0x${string}`;
-
-  try {
-    const canSponsor = await supportsPaymaster({
-      provider: params.provider,
-      from: params.eoaAddress,
-      chainIdHex,
-    });
-    if (canSponsor) return params.eoaAddress;
-  } catch {
-    // ignore and continue
-  }
-
-  try {
-    const alt = await supportsAlternateWindowPaymaster({
-      provider: params.provider,
-      from: params.eoaAddress,
-    });
-    if (alt) return params.eoaAddress;
-  } catch {
-    // ignore and continue
-  }
-
-  try {
-    const bundle = await get4337Bundle({ provider: params.provider, chainIdDec });
-    if (bundle?.account?.address) return bundle.account.address;
-  } catch {
-    // if account derivation fails, keep using the connected EOA for reads
-  }
-
-  return params.eoaAddress;
-}
-
 export async function getBestScore(params: {
   provider: EIP1193Provider;
-  contract: Address;
-  address: Address;
+  contract: `0x${string}`;
+  address: `0x${string}`;
 }): Promise<number> {
   const data = encodeFunctionData({
     abi,
@@ -205,6 +54,8 @@ export async function getBestScore(params: {
 
   let res: string;
   try {
+    // Some embedded providers may hang (resolve very slowly) on eth_call.
+    // We apply a short timeout and fall back to a public RPC.
     res = (await requestWithTimeout(
       params.provider.request({
         method: "eth_call",
@@ -213,6 +64,8 @@ export async function getBestScore(params: {
       5_000
     )) as string;
   } catch (e) {
+    // Some embedded providers don't implement the full JSON-RPC surface.
+    // If the method is unsupported OR the call timed out, fall back to RPC.
     if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
     res = (await rpcRequest("eth_call", [{ to: params.contract, data }, "latest"])) as string;
   }
@@ -228,8 +81,8 @@ export async function getBestScore(params: {
 
 export async function getSubmissions(params: {
   provider: EIP1193Provider;
-  contract: Address;
-  address: Address;
+  contract: `0x${string}`;
+  address: `0x${string}`;
 }): Promise<number> {
   const data = encodeFunctionData({
     abi,
@@ -262,20 +115,26 @@ export async function getSubmissions(params: {
 
 export async function submitScore(params: {
   provider: EIP1193Provider;
-  contract: Address;
-  from: Address;
+  contract: `0x${string}`;
+  from: `0x${string}`;
   score: number;
-}): Promise<TxHash> {
+}): Promise<`0x${string}`> {
   const data = encodeFunctionData({
     abi,
     functionName: "submitScore",
     args: [params.score],
   });
 
-  const paymasterProxyUrl = getBundlerProxyUrl();
+  // 1) Try sponsored path using the current provider.
+  // IMPORTANT: do NOT silently fall back to a paid tx if the wallet *supports* paymaster
+  // but sponsorship fails (wrong allowlist signature, bad proxy URL, CDP policy, etc.).
+  // We want that failure visible so you can fix the real issue.
+  const paymasterProxyUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
   if (paymasterProxyUrl) {
-    const chainIdDec = await getChainIdDec(params.provider);
-    const chainIdHex = `0x${chainIdDec.toString(16)}` as `0x${string}`;
+    const chainIdHex = (await params.provider.request({
+      method: "eth_chainId",
+      params: [],
+    })) as `0x${string}`;
 
     const canSponsor = await supportsPaymaster({
       provider: params.provider,
@@ -291,64 +150,49 @@ export async function submitScore(params: {
         calls: [{ to: params.contract, value: "0x0", data }],
       });
     }
-
-    try {
-      const alt = await supportsAlternateWindowPaymaster({
-        provider: params.provider,
-        from: params.from,
-      });
-
-      if (alt && paymasterProxyUrl) {
-        return await sendSponsoredCallsAndGetTxHash({
-          provider: alt.provider,
-          chainIdHex: alt.chainIdHex,
-          from: params.from,
-          calls: [{ to: params.contract, value: "0x0", data }],
-        });
-      }
-    } catch {
-      // ignore and continue to 4337 fallback
-    }
-
-    try {
-      const bundle = await get4337Bundle({
-        provider: params.provider,
-        chainIdDec,
-      });
-
-      if (bundle) {
-        const userOpHash = await bundle.bundlerClient.sendUserOperation({
-          account: bundle.account,
-          calls: [
-            {
-              to: params.contract,
-              data: appendErc8021Suffix(data),
-              value: 0n,
-            },
-          ],
-          paymaster: true,
-        });
-
-        const receipt = await bundle.bundlerClient.waitForUserOperationReceipt({
-          hash: userOpHash,
-        });
-
-        const txHash =
-          receipt?.receipt?.transactionHash ??
-          receipt?.transactionHash ??
-          receipt?.userOperationReceipt?.receipt?.transactionHash;
-
-        if (!txHash || typeof txHash !== "string") {
-          throw new Error("Sponsored UserOperation finished without a transaction hash.");
-        }
-
-        return txHash as TxHash;
-      }
-    } catch (e: any) {
-      throw new Error(e?.message ?? "Gasless score save failed.");
-    }
   }
 
+  // 2) If we're inside a Base App / wallet webview, there is often a second provider on window.ethereum
+  // that supports paymasterService + wallet_sendCalls. We only use it if it already has the same account
+  // (so we don't trigger an extra connect prompt).
+  try {
+    if (typeof window !== "undefined") {
+      const eth = (window as any)?.ethereum as EIP1193Provider | undefined;
+
+      if (eth && eth !== params.provider && typeof (eth as any).request === "function") {
+        const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
+        const hasSameAccount =
+          Array.isArray(accounts) &&
+          accounts.some((a) => a?.toLowerCase?.() === params.from.toLowerCase());
+
+        if (hasSameAccount) {
+          const chainIdHex = (await eth.request({
+            method: "eth_chainId",
+            params: [],
+          })) as `0x${string}`;
+
+          const canSponsor = await supportsPaymaster({
+            provider: eth,
+            from: params.from,
+            chainIdHex,
+          });
+
+          if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
+            return await sendSponsoredCallsAndGetTxHash({
+              provider: eth,
+              chainIdHex,
+              from: params.from,
+              calls: [{ to: params.contract, value: "0x0", data }],
+            });
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore and fall back to normal tx
+  }
+
+  // 3) Fallback: normal EOA-style tx (will cost gas)
   const txHash = (await params.provider.request({
     method: "eth_sendTransaction",
     params: [
@@ -359,21 +203,27 @@ export async function submitScore(params: {
         value: "0x0",
       },
     ],
-  })) as TxHash;
+  })) as `0x${string}`;
 
   return txHash;
 }
 
+
 export async function waitForReceipt(params: {
   provider: EIP1193Provider;
-  txHash: TxHash;
+  txHash: `0x${string}`;
   timeoutMs?: number;
 }) {
   const timeoutMs = params.timeoutMs ?? 60_000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    // NOTE:
+    // Some embedded wallet providers (notably in-app smart wallets) may *support*
+    // eth_getTransactionReceipt but keep returning `null` even after the tx is mined.
+    // In those cases, querying a public RPC is more reliable.
     let receipt: any = null;
 
+    // 1) Try via the provider first.
     try {
       receipt = await params.provider.request({
         method: "eth_getTransactionReceipt",
@@ -381,9 +231,11 @@ export async function waitForReceipt(params: {
       });
     } catch (e) {
       if (!methodUnsupported(e)) throw e;
+      // If the method is missing, we'll fall back to RPC below.
     }
     if (receipt) return receipt;
 
+    // 2) Always attempt via RPC as a fallback (even if provider returned null).
     try {
       receipt = await rpcRequest("eth_getTransactionReceipt", [params.txHash]);
     } catch {
