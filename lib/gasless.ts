@@ -3,17 +3,6 @@ import { appendErc8021Suffix } from "./builderCodes";
 
 type JsonRpcError = { code?: number; message?: string };
 
-type WalletCapabilities = Record<string, any>;
-
-type WalletCallSupport = {
-  paymasterSupported: boolean;
-  atomicStatus: "supported" | "ready" | "unsupported" | null;
-};
-
-export function isMetaMaskProvider(provider: EIP1193Provider): boolean {
-  return Boolean((provider as any)?.isMetaMask);
-}
-
 function isUserRejected(e: unknown): boolean {
   const err = e as any;
   const code = err?.code ?? err?.data?.code;
@@ -38,72 +27,28 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function getWalletCapabilities(params: {
-  provider: EIP1193Provider;
-  from: `0x${string}`;
-  chainIdHex: `0x${string}`;
-}): Promise<WalletCapabilities | null> {
-  const attempts: Array<any[]> = [
-    [params.from, [params.chainIdHex]],
-    [params.from],
-    [],
-  ];
-
-  for (const rpcParams of attempts) {
-    try {
-      const caps = (await params.provider.request({
-        method: "wallet_getCapabilities",
-        params: rpcParams,
-      })) as WalletCapabilities;
-
-      if (caps && typeof caps === "object") return caps;
-    } catch (e) {
-      if (methodUnsupported(e)) return null;
-      // Different wallets accept different param shapes. Try the next one.
-      continue;
-    }
-  }
-
-  return null;
-}
-
-export async function getWalletCallSupport(params: {
-  provider: EIP1193Provider;
-  from: `0x${string}`;
-  chainIdHex: `0x${string}`;
-}): Promise<WalletCallSupport> {
-  const caps = await getWalletCapabilities(params);
-  if (!caps) {
-    return { paymasterSupported: false, atomicStatus: null };
-  }
-
-  const chainIdDec = Number.parseInt(params.chainIdHex, 16);
-  const cap =
-    caps?.[params.chainIdHex] ??
-    caps?.[chainIdDec] ??
-    caps?.[String(chainIdDec)] ??
-    caps?.["0x0"] ??
-    null;
-
-  const atomicRaw = cap?.atomic?.status ?? cap?.atomic?.supported ?? null;
-  const atomicStatus =
-    atomicRaw === "supported" || atomicRaw === "ready" || atomicRaw === "unsupported"
-      ? atomicRaw
-      : null;
-
-  return {
-    paymasterSupported: cap?.paymasterService?.supported === true,
-    atomicStatus,
-  };
-}
-
 export async function supportsPaymaster(params: {
   provider: EIP1193Provider;
   from: `0x${string}`;
   chainIdHex: `0x${string}`;
 }): Promise<boolean> {
-  const support = await getWalletCallSupport(params);
-  return support.paymasterSupported === true;
+  try {
+    const caps = (await params.provider.request({
+      method: "wallet_getCapabilities",
+      params: [params.from],
+    })) as any;
+
+    // Different implementations key this map differently (hex chainId like "0x2105" vs decimal like 8453).
+    const chainIdDec = Number.parseInt(params.chainIdHex, 16);
+    const byHex = caps?.[params.chainIdHex];
+    const byDec = caps?.[chainIdDec] ?? caps?.[String(chainIdDec)];
+    const cap = byHex ?? byDec;
+
+    return cap?.paymasterService?.supported === true;
+  } catch (e) {
+    if (methodUnsupported(e)) return false;
+    return false;
+  }
 }
 
 async function sendCalls(params: {
@@ -116,7 +61,7 @@ async function sendCalls(params: {
   const callsWithSuffix = params.calls.map((c) => ({ ...c, data: appendErc8021Suffix(c.data) }));
 
   // Try newer shape first (some wallets want this),
-  // then fall back to the simpler 1.0 style used in Base / EIP-5792 docs.
+  // then fall back to the simpler 1.0 style used in Base docs.
   try {
     return (await params.provider.request({
       method: "wallet_sendCalls",
@@ -134,10 +79,13 @@ async function sendCalls(params: {
       ],
     })) as any;
   } catch (e) {
-    // If the user rejects the wallet prompt, do NOT retry.
+    // IMPORTANT UX RULE:
+    // If the user rejects the prompt, do NOT retry (that creates a 2nd prompt).
+    // Only fall back when it's clearly a parameter/version shape mismatch.
     if (isUserRejected(e)) throw e;
     if (!isInvalidParams(e)) throw e;
 
+    // Fall back to 1.0 style from Base docs
     return (await params.provider.request({
       method: "wallet_sendCalls",
       params: [
@@ -205,7 +153,7 @@ export async function sendSponsoredCallsAndGetTxHash(params: {
 
     const code = Number(status?.status ?? 0);
 
-    // 100 = pending; 200 = success; 4xx/5xx/6xx = failures per EIP-5792/Base docs.
+    // 100 = pending; 200 = success; 4xx/5xx/6xx = failures per Base docs
     if (code === 100) {
       await sleep(1200);
       continue;
