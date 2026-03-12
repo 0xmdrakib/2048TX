@@ -1,22 +1,7 @@
-import {
-  createPublicClient,
-  createWalletClient,
-  custom,
-  decodeFunctionResult,
-  encodeFunctionData,
-  http,
-  parseAbi,
-} from "viem";
-import { createBundlerClient } from "viem/account-abstraction";
-import { base, baseSepolia } from "viem/chains";
+import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 import { appendErc8021Suffix } from "./builderCodes";
 import type { EIP1193Provider } from "./types";
-import {
-  getAtomicCapabilityStatus,
-  sendAtomicCallsAndGetTxHash,
-  sendSponsoredCallsAndGetTxHash,
-  supportsPaymaster,
-} from "./gasless";
+import { getWalletCallSupport, sendSponsoredCallsAndGetTxHash } from "./gasless";
 
 const abi = parseAbi([
   "function best(address) view returns (uint32)",
@@ -31,22 +16,6 @@ function methodUnsupported(e: unknown) {
   const err = e as JsonRpcError;
   const msg = String(err?.message ?? e);
   return err?.code === -32601 || /does not support|not support|Method not found/i.test(msg);
-}
-
-function isMetaMaskProvider(provider: EIP1193Provider): boolean {
-  return Boolean((provider as any)?.isMetaMask);
-}
-
-function getConfiguredChain() {
-  const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
-  if (chainId === 84532) return baseSepolia;
-  return base;
-}
-
-function resolveBundlerUrl(url: string) {
-  if (/^https?:\/\//i.test(url)) return url;
-  if (typeof window !== "undefined") return new URL(url, window.location.origin).toString();
-  return url;
 }
 
 async function rpcRequest(method: string, params: any[] = []) {
@@ -72,80 +41,6 @@ async function requestWithTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-async function getAccountCode(params: {
-  provider: EIP1193Provider;
-  address: `0x${string}`;
-}): Promise<`0x${string}`> {
-  try {
-    return (await params.provider.request({
-      method: "eth_getCode",
-      params: [params.address, "latest"],
-    })) as `0x${string}`;
-  } catch (e) {
-    if (!methodUnsupported(e)) throw e;
-    return (await rpcRequest("eth_getCode", [params.address, "latest"])) as `0x${string}`;
-  }
-}
-
-async function sendMetaMask7702SponsoredScore(params: {
-  provider: EIP1193Provider;
-  chainIdHex: `0x${string}`;
-  contract: `0x${string}`;
-  from: `0x${string}`;
-  data: `0x${string}`;
-}): Promise<`0x${string}`> {
-  const bundlerUrlRaw = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
-  if (!bundlerUrlRaw) throw new Error("Missing NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL");
-  const bundlerUrl = resolveBundlerUrl(bundlerUrlRaw);
-
-  const chain = getConfiguredChain();
-  const publicClient = createPublicClient({
-    chain,
-    transport: http(process.env.NEXT_PUBLIC_BASE_RPC_URL || undefined),
-  });
-
-  const walletClient = createWalletClient({
-    chain,
-    transport: custom(params.provider as any),
-  });
-
-  const [{ Implementation, toMetaMaskSmartAccount }, addresses] = await Promise.all([
-    import("@metamask/smart-accounts-kit"),
-    walletClient.getAddresses(),
-  ]);
-
-  const address = (addresses?.[0] ?? params.from) as `0x${string}`;
-
-  const account = await toMetaMaskSmartAccount({
-    client: publicClient,
-    implementation: Implementation.Stateless7702,
-    address,
-    signer: { walletClient },
-  });
-
-  const bundlerClient = createBundlerClient({
-    account,
-    client: publicClient,
-    transport: http(bundlerUrl),
-  });
-
-  const userOperationHash = await bundlerClient.sendUserOperation({
-    account,
-    calls: [{ to: params.contract, value: 0n, data: appendErc8021Suffix(params.data) }],
-    paymaster: true,
-  });
-
-  const receipt: any = await bundlerClient.waitForUserOperationReceipt({
-    hash: userOperationHash,
-    timeout: 120_000,
-    pollingInterval: 1_200,
-  });
-
-  const txHash = receipt?.receipt?.transactionHash ?? receipt?.transactionHash;
-  if (!txHash) throw new Error("No transaction hash found for sponsored user operation");
-  return txHash as `0x${string}`;
-}
-
 export async function getBestScore(params: {
   provider: EIP1193Provider;
   contract: `0x${string}`;
@@ -164,7 +59,7 @@ export async function getBestScore(params: {
         method: "eth_call",
         params: [{ to: params.contract, data }, "latest"],
       }) as Promise<string>,
-      5_000
+      5_000,
     )) as string;
   } catch (e) {
     if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
@@ -198,7 +93,7 @@ export async function getSubmissions(params: {
         method: "eth_call",
         params: [{ to: params.contract, data }, "latest"],
       }) as Promise<string>,
-      5_000
+      5_000,
     )) as string;
   } catch (e) {
     if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
@@ -227,19 +122,23 @@ export async function submitScore(params: {
   });
 
   const paymasterProxyUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
+
+  // Primary path: wallet-native EIP-5792 + ERC-7677 sponsorship.
+  // This is the safest MetaMask same-address route because MetaMask itself handles
+  // the smart-account upgrade / smart execution when the wallet reports support.
   if (paymasterProxyUrl) {
     const chainIdHex = (await params.provider.request({
       method: "eth_chainId",
       params: [],
     })) as `0x${string}`;
 
-    const canSponsor = await supportsPaymaster({
+    const support = await getWalletCallSupport({
       provider: params.provider,
       from: params.from,
       chainIdHex,
     });
 
-    if (canSponsor) {
+    if (support.paymasterSupported) {
       return await sendSponsoredCallsAndGetTxHash({
         provider: params.provider,
         chainIdHex,
@@ -247,38 +146,10 @@ export async function submitScore(params: {
         calls: [{ to: params.contract, value: "0x0", data }],
       });
     }
-
-    if (isMetaMaskProvider(params.provider)) {
-      const atomicStatus = await getAtomicCapabilityStatus({
-        provider: params.provider,
-        from: params.from,
-        chainIdHex,
-      });
-      const atomicCapable = atomicStatus === "ready" || atomicStatus === "supported";
-
-      const code = await getAccountCode({ provider: params.provider, address: params.from });
-
-      if (code && code !== "0x" && atomicCapable) {
-        return await sendMetaMask7702SponsoredScore({
-          provider: params.provider,
-          chainIdHex,
-          contract: params.contract,
-          from: params.from,
-          data,
-        });
-      }
-
-      if (atomicCapable) {
-        return await sendAtomicCallsAndGetTxHash({
-          provider: params.provider,
-          chainIdHex,
-          from: params.from,
-          calls: [{ to: params.contract, value: "0x0", data }],
-        });
-      }
-    }
   }
 
+  // Secondary path: if we're inside a Base App / wallet webview, there may be a second
+  // injected provider on window.ethereum that supports wallet_sendCalls for the same account.
   try {
     if (typeof window !== "undefined") {
       const eth = (window as any)?.ethereum as EIP1193Provider | undefined;
@@ -289,19 +160,19 @@ export async function submitScore(params: {
           Array.isArray(accounts) &&
           accounts.some((a) => a?.toLowerCase?.() === params.from.toLowerCase());
 
-        if (hasSameAccount) {
+        if (hasSameAccount && paymasterProxyUrl) {
           const chainIdHex = (await eth.request({
             method: "eth_chainId",
             params: [],
           })) as `0x${string}`;
 
-          const canSponsor = await supportsPaymaster({
+          const support = await getWalletCallSupport({
             provider: eth,
             from: params.from,
             chainIdHex,
           });
 
-          if (canSponsor && process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL) {
+          if (support.paymasterSupported) {
             return await sendSponsoredCallsAndGetTxHash({
               provider: eth,
               chainIdHex,
@@ -316,6 +187,7 @@ export async function submitScore(params: {
     // ignore and fall back to normal tx
   }
 
+  // Fallback: normal EOA tx (costs gas).
   const txHash = (await params.provider.request({
     method: "eth_sendTransaction",
     params: [
