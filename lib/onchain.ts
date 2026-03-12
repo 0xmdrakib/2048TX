@@ -1,7 +1,7 @@
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 import { appendErc8021Suffix } from "./builderCodes";
 import type { EIP1193Provider } from "./types";
-import { getWalletCallSupport, sendSponsoredCallsAndGetTxHash } from "./gasless";
+import { getWalletCallSupport, isMetaMaskProvider, sendSponsoredCallsAndGetTxHash } from "./gasless";
 
 const abi = parseAbi([
   "function best(address) view returns (uint32)",
@@ -124,8 +124,10 @@ export async function submitScore(params: {
   const paymasterProxyUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
 
   // Primary path: wallet-native EIP-5792 + ERC-7677 sponsorship.
-  // This is the safest MetaMask same-address route because MetaMask itself handles
-  // the smart-account upgrade / smart execution when the wallet reports support.
+  // For MetaMask, we also try wallet_sendCalls when atomic batching is available
+  // (or capability probing is inconclusive), because the smart-account upgrade is
+  // triggered by EIP-5792/EIP-7702-ready dapps and silent fallback here would
+  // always force the user into a normal paid transaction.
   if (paymasterProxyUrl) {
     const chainIdHex = (await params.provider.request({
       method: "eth_chainId",
@@ -138,13 +140,30 @@ export async function submitScore(params: {
       chainIdHex,
     });
 
-    if (support.paymasterSupported) {
-      return await sendSponsoredCallsAndGetTxHash({
-        provider: params.provider,
-        chainIdHex,
-        from: params.from,
-        calls: [{ to: params.contract, value: "0x0", data }],
-      });
+    const isMetaMask = isMetaMaskProvider(params.provider);
+    const shouldTryWalletCalls =
+      support.paymasterSupported ||
+      (isMetaMask && support.atomicStatus !== "unsupported");
+
+    if (shouldTryWalletCalls) {
+      try {
+        return await sendSponsoredCallsAndGetTxHash({
+          provider: params.provider,
+          chainIdHex,
+          from: params.from,
+          calls: [{ to: params.contract, value: "0x0", data }],
+        });
+      } catch (e) {
+        if (isMetaMask) {
+          const msg = String((e as any)?.message ?? e);
+          throw new Error(
+            /wallet_sendCalls|wallet_getCallsStatus|paymaster/i.test(msg)
+              ? "MetaMask did not accept the sponsored smart-account call. In MetaMask, enable Smart Accounts and make sure Base is using MetaMask's default RPC, then try again."
+              : msg || "MetaMask sponsored smart-account call failed."
+          );
+        }
+        throw e;
+      }
     }
   }
 
@@ -185,6 +204,12 @@ export async function submitScore(params: {
     }
   } catch {
     // ignore and fall back to normal tx
+  }
+
+  if (isMetaMaskProvider(params.provider) && paymasterProxyUrl) {
+    throw new Error(
+      "MetaMask same-address gasless is not available on this setup right now, so the app stopped before charging you gas. In MetaMask, enable Smart Accounts and use Base's default RPC, then try again."
+    );
   }
 
   // Fallback: normal EOA tx (costs gas).
