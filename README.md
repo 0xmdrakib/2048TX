@@ -1,4 +1,4 @@
-Just lunched my new and 7th https://x.com/base mini app: 2048 TX 🧩🎮
+Just lunched my new mini app in https://x.com/base : 2048 TX 🧩🎮
 
 I built a 2048 game where gameplay can optionally trigger real onchain activity:
 
