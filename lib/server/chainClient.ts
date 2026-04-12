@@ -5,6 +5,7 @@ import { base, baseSepolia } from "viem/chains";
 
 const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 8453);
 const rpcUrl =
+  process.env.BASE_RPC_URL ??
   process.env.NEXT_PUBLIC_BASE_RPC_URL ??
   (chainId === 84532 ? "https://sepolia.base.org" : "https://mainnet.base.org");
 
