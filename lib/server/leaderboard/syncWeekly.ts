@@ -3,7 +3,7 @@ import "server-only";
 import type { Redis } from "@upstash/redis";
 import { publicClient, scoreSubmittedEvent } from "../chainClient";
 import { KEYS } from "./store";
-import { getOrInitWeeklyEpoch, getWeekIndex } from "./weeklySeason";
+import { getOrInitWeeklyEpoch, getWeekIndex, getWeekBounds } from "./weeklySeason";
 
 // How many blocks to query per getLogs call (keeps RPC happy).
 const CHUNK = 2000n;
@@ -74,22 +74,26 @@ export async function syncWeeklyLeaderboard(redis: Redis, opts?: { maxBlocks?: b
   const latest = await publicClient.getBlockNumber();
 
   const last = await redis.get<number | string>(KEYS.weeklyLastBlock);
-  // First run: start counting from "now" (latest block) by default.
-  // This matches your requirement: weekly leaderboard starts when you enable it.
-  if (last === null || last === undefined) {
-    await redis.set(KEYS.weeklyLastBlock, String(latest));
-    return {
-      ok: true,
-      contract,
-      fromBlock: latest,
-      toBlock: latest,
-      logsProcessed: 0,
-      usersTouched: 0,
-      epochSeconds,
-    };
-  }
 
-  let fromBlock = BigInt(last) + 1n;
+  let fromBlock: bigint;
+
+  if (last === null || last === undefined) {
+    // First run: scan from the start of the current week so we catch ALL
+    // scores submitted during this week, even those before the cron was set up.
+    // Base produces ~1 block per 2 seconds. We estimate the block number at
+    // the start of the current week and add a 200-block safety buffer.
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const weekIndex = getWeekIndex(epochSeconds, nowSeconds);
+    const safeWeekIndex = weekIndex < 0 ? 0 : weekIndex;
+    const { start: weekStartSeconds } = getWeekBounds(epochSeconds, safeWeekIndex);
+    const secondsSinceWeekStart = Math.max(0, nowSeconds - weekStartSeconds);
+
+    // Base: ~1 block per 2 seconds. Add 200-block buffer for safety.
+    const estimatedBlocksBack = BigInt(Math.ceil(secondsSinceWeekStart / 2)) + 200n;
+    fromBlock = latest > estimatedBlocksBack ? latest - estimatedBlocksBack : 0n;
+  } else {
+    fromBlock = BigInt(last) + 1n;
+  }
   let toBlock = latest;
 
   if (opts?.maxBlocks && opts.maxBlocks > 0n) {
