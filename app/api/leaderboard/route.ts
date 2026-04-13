@@ -73,6 +73,21 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Auto-sync: every 3 minutes, scan recent blocks for ScoreSubmitted events.
+  // Catches scores submitted directly to the contract (outside this app's frontend).
+  {
+    const now = Date.now();
+    const lastSync = Number((await redis.get<number | string>(KEYS.weeklyLastAutoSyncAt)) ?? 0);
+    if (!lastSync || now - lastSync > 3 * 60_000) {
+      await redis.set(KEYS.weeklyLastAutoSyncAt, String(now));
+      try {
+        await syncWeeklyLeaderboard(redis, { maxBlocks: 1200n });
+      } catch {
+        // Non-fatal: the leaderboard still returns cached data.
+      }
+    }
+  }
+
   const epochSeconds = await getOrInitWeeklyEpoch(redis);
   const nowSeconds = Math.floor(Date.now() / 1000);
   const meta = getWeekMeta(epochSeconds, nowSeconds);
