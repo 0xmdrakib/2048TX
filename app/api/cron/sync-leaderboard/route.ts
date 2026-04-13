@@ -51,11 +51,6 @@ export async function GET(req: NextRequest) {
         ? BigInt(deploy)
         : 0n;
 
-  // Cap lookback to 1200 blocks max to avoid RPC rate limits.
-  // After the first run, subsequent calls only scan ~900 new blocks.
-  const minFrom = latest > 1200n ? latest - 1200n : 0n;
-  if (fromBlock < minFrom) fromBlock = minFrom;
-
   const toBlock = latest;
 
   let logsProcessed = 0;
