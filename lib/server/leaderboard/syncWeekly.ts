@@ -74,17 +74,22 @@ export async function syncWeeklyLeaderboard(redis: Redis, opts?: { maxBlocks?: b
   const latest = await publicClient.getBlockNumber();
 
   const last = await redis.get<number | string>(KEYS.weeklyLastBlock);
-
-  let fromBlock: bigint;
-
+  // First run: start counting from "now" (latest block) by default.
+  // This matches your requirement: weekly leaderboard starts when you enable it.
   if (last === null || last === undefined) {
-    // First run: only scan the last 1200 blocks to avoid RPC rate limits.
-    // Subsequent runs (every 3 min) will cover ~900 new blocks each time.
-    const MAX_LOOKBACK = 1200n;
-    fromBlock = latest > MAX_LOOKBACK ? latest - MAX_LOOKBACK : 0n;
-  } else {
-    fromBlock = BigInt(last) + 1n;
+    await redis.set(KEYS.weeklyLastBlock, String(latest));
+    return {
+      ok: true,
+      contract,
+      fromBlock: latest,
+      toBlock: latest,
+      logsProcessed: 0,
+      usersTouched: 0,
+      epochSeconds,
+    };
   }
+
+  let fromBlock = BigInt(last) + 1n;
   let toBlock = latest;
 
   if (opts?.maxBlocks && opts.maxBlocks > 0n) {
