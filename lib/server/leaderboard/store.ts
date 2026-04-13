@@ -18,6 +18,7 @@ export const KEYS = {
   weeklyLastBlock: "lb:weekly:lastBlock",
   weeklyLastPublicSyncAt: "lb:weekly:lastPublicSyncAt",
   weeklyLastSnapshotCheckAt: "lb:weekly:lastSnapshotCheckAt",
+  weeklyLastAutoSyncAt: "lb:weekly:lastAutoSyncAt",
 
   // ✅ This is the missing one causing your build error
   weeklyZ: (week: number) => `lb:weekly:week:${week}:z`,
