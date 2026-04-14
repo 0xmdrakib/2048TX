@@ -123,22 +123,24 @@ export async function listInjectedWallets(opts?: {
   }
 
   // 2) Fallback to window.ethereum.providers (some environments expose an array)
-  const w = window as any;
-  const eth = w?.ethereum;
-  if (Array.isArray(eth?.providers) && eth.providers.length > 0) {
-    eth.providers.forEach((p: any, idx: number) => {
-      if (!p || typeof p.request !== "function") return;
-      const id = `ethereum.providers:${idx}`;
-      if (seen.has(id)) return;
-      seen.add(id);
-      out.push({ id, name: nameFromInjectedProvider(p), provider: p as EIP1193Provider });
-    });
-  } else if (eth && typeof eth.request === "function") {
-    // 3) Single injected provider
-    const id = "window.ethereum";
-    if (!seen.has(id)) {
-      seen.add(id);
-      out.push({ id, name: nameFromInjectedProvider(eth), provider: eth as EIP1193Provider });
+  if (out.length === 0) {
+    const w = window as any;
+    const eth = w?.ethereum;
+    if (Array.isArray(eth?.providers) && eth.providers.length > 0) {
+      eth.providers.forEach((p: any, idx: number) => {
+        if (!p || typeof p.request !== "function") return;
+        const id = `ethereum.providers:${idx}`;
+        if (seen.has(id)) return;
+        seen.add(id);
+        out.push({ id, name: nameFromInjectedProvider(p), provider: p as EIP1193Provider });
+      });
+    } else if (eth && typeof eth.request === "function") {
+      // 3) Single injected provider
+      const id = "window.ethereum";
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push({ id, name: nameFromInjectedProvider(eth), provider: eth as EIP1193Provider });
+      }
     }
   }
 
