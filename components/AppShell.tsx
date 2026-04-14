@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2 } from "lucide-react";
+import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2, Power } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -77,7 +77,7 @@ export default function AppShell() {
 
   // Web-only injected wallet selection (EIP-6963). Mini app providers bypass this.
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
-  const [walletChoices, setWalletChoices] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [walletChoices, setWalletChoices] = useState<Array<{ id: string; name: string; icon?: string }> | null>(null);
   const [walletChoicesLoading, setWalletChoicesLoading] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
@@ -275,6 +275,12 @@ try {
     }
   }, [chainId, contract]);
 
+  const disconnect = useCallback(() => {
+    setAddress(null);
+    setPreferredInjectedWalletId(null);
+    setOnchainBest(null);
+  }, []);
+
   const connect = useCallback(async () => {
     // On normal web (outside Farcaster/Base app), support multi injected wallets.
     // If multiple injected wallets exist and the user hasn't chosen one yet, show a picker.
@@ -291,7 +297,7 @@ try {
         setWalletChoicesLoading(true);
         const wallets = await listInjectedWallets({ forceRefresh: true, timeoutMs: 250 });
         if (wallets.length > 1) {
-          setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name })));
+          setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name, icon: w.icon })));
           setWalletPickerOpen(true);
           return;
         }
@@ -682,9 +688,6 @@ try {
             <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
               <Palette className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={reset} aria-label="New Game">
-              <RotateCcw className="h-4 w-4" />
-            </Button>
           </div>
         </div>
 
@@ -722,25 +725,32 @@ try {
         </div>
 
         <div className="mt-3 flex items-center justify-between">
-          <div className="text-xs text-[var(--muted)]">
+          <div className="flex items-center">
             {address ? (
-              <span className="inline-flex items-center gap-2">
-                <Wallet className="h-3.5 w-3.5" />
-                {shorten(address)}
-              </span>
-            ) : providerReady ? (
-              <span>Wallet not connected</span>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-1.5 text-sm font-medium shadow-sm">
+                <div className="h-2 w-2 rounded-full bg-green-500" />
+                <span>{shorten(address)}</span>
+                <button
+                  type="button"
+                  onClick={disconnect}
+                  className="mr-[-4px] ml-1 rounded-full p-1 opacity-70 hover:bg-[var(--muted)] hover:opacity-100 transition-colors"
+                  aria-label="Disconnect"
+                >
+                  <Power className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ) : (
-              <span>Wallet: optional</span>
+              <Button variant="outline" size="sm" onClick={connect}>
+                Connect
+              </Button>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            {!address ? (
-              <Button variant="outline" size="sm" onClick={connect}>
-                Connect
-              </Button>
-            ) : null}
+            <Button variant="outline" size="sm" onClick={reset} aria-label="New Game">
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Restart
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -801,7 +811,7 @@ try {
             <Button
               key={w.id}
               variant="outline"
-              className="w-full justify-between"
+              className="w-full justify-between h-12"
               onClick={() => {
                 setPreferredInjectedWalletId(w.id);
                 setWalletPickerOpen(false);
@@ -809,7 +819,14 @@ try {
                 void doConnect();
               }}
             >
-              <span className="truncate">{w.name}</span>
+              <span className="flex items-center gap-3">
+                {w.icon ? (
+                  <img src={w.icon} alt={w.name} className="w-6 h-6 rounded-md object-contain" />
+                ) : (
+                  <Wallet className="w-5 h-5 opacity-60" />
+                )}
+                <span className="truncate">{w.name}</span>
+              </span>
               <span className="ml-3 shrink-0 font-mono text-[11px] opacity-60">
                 {w.id.startsWith("eip6963:") ? w.id.slice("eip6963:".length) : w.id}
               </span>
