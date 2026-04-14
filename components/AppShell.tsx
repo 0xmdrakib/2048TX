@@ -292,11 +292,11 @@ try {
       inMiniApp = false;
     }
 
-    if (!inMiniApp && !getPreferredInjectedWalletId()) {
+    if (!inMiniApp) {
       try {
         setWalletChoicesLoading(true);
         const wallets = await listInjectedWallets({ forceRefresh: true, timeoutMs: 250 });
-        if (wallets.length > 1) {
+        if (wallets.length > 0) {
           setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name, icon: w.icon })));
           setWalletPickerOpen(true);
           return;
