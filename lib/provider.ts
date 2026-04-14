@@ -23,6 +23,8 @@ type InjectedWallet = {
   id: string;
   /** Display name when available */
   name: string;
+  /** Base64 icon or URL when available */
+  icon?: string;
   /** EIP-1193 provider */
   provider: EIP1193Provider;
 };
@@ -107,7 +109,7 @@ export async function listInjectedWallets(opts?: {
       const id = `eip6963:${stable}`;
       if (seen.has(id)) return;
       seen.add(id);
-      out.push({ id, name: info.name, provider: provider as EIP1193Provider });
+      out.push({ id, name: info.name, icon: info.icon, provider: provider as EIP1193Provider });
     };
 
     window.addEventListener("eip6963:announceProvider", handler as any);
