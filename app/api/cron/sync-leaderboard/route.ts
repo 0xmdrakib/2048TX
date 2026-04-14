@@ -93,6 +93,10 @@ export async function GET(req: NextRequest) {
     toBlock: String(toBlock),
     logsProcessed,
     usersTouched: touched.size,
-    weekly,
+    weekly: {
+      ...weekly,
+      fromBlock: String(weekly.fromBlock),
+      toBlock: String(weekly.toBlock),
+    },
   });
 }
