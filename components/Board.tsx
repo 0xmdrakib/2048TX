@@ -16,6 +16,12 @@ export default function Board({
   isLocked?: boolean;
 }) {
   const cells = boardToCells(board);
+  const size = board.length;
+  const colsClass = {
+    3: "grid-cols-3",
+    4: "grid-cols-4",
+    5: "grid-cols-5",
+  }[size] || "grid-cols-4";
 
   return (
     <div
@@ -25,7 +31,7 @@ export default function Board({
         isLocked ? "opacity-90" : "",
       ].join(" ")}
     >
-      <div className="grid h-full w-full grid-cols-4 gap-3">
+      <div className={`grid h-full w-full gap-3 ${colsClass}`}>
         {cells.map(({ posKey, tile }) => (
           <div
             key={posKey}
