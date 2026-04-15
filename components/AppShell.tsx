@@ -678,7 +678,7 @@ try {
                 <span className="font-semibold">{modeLabel}</span>
               </Chip>
               {mode === "pay" ? (
-  <Chip className="w-full pl-4 pr-5 py-1.5 max-w-full">
+  <Chip className="w-fit pl-4 pr-5 py-1.5">
     <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
     <span className="font-semibold text-[12px] whitespace-nowrap relative top-[1px]">
       {movesPaid} moves • {formatMicroUsdc(spentMicro)}${"\u00A0"}
@@ -702,6 +702,10 @@ try {
   <Share2 className="h-4 w-4" />
 </Button>
 
+            <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
+              <Palette className="h-4 w-4" />
+            </Button>
+
             <Button
               variant="ghost"
               size="sm"
@@ -710,10 +714,6 @@ try {
             >
               <Grid className="h-4 w-4" />
               <span className="ml-1 text-xs font-semibold">{gridSize}x{gridSize}</span>
-            </Button>
-
-            <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
-              <Palette className="h-4 w-4" />
             </Button>
           </div>
         </div>
