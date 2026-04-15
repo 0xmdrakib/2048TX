@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2, Power } from "lucide-react";
+import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2, Power, Grid } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -46,8 +46,9 @@ export default function AppShell() {
   // Theme persists; mode does NOT (default classic every open).
   const [theme, setTheme] = useState<ThemeId>("classic");
   const [mode, setMode] = useState<Mode>("classic");
+  const [gridSize, setGridSize] = useState<number>(4);
 
-  const [{ board, score }, setGame] = useState(() => newGame());
+  const [{ board, score }, setGame] = useState(() => newGame(4));
   const [gameOver, setGameOver] = useState(false);
   const [gameOverOpen, setGameOverOpen] = useState(false);
 
@@ -122,7 +123,7 @@ export default function AppShell() {
   }, [theme]);
 
   const reset = useCallback(() => {
-    setGame(newGame());
+    setGame(newGame(gridSize));
     setGameOver(false);
     setGameOverOpen(false);
     setSaveOpen(false);
@@ -131,6 +132,22 @@ export default function AppShell() {
     setSpentMicro(0);
     setToast({ message: "New game" });
     setTimeout(() => setToast(null), 1200);
+  }, [gridSize]);
+
+  const cycleGridSize = useCallback(() => {
+    setGridSize((prev) => {
+      const nextSize = prev === 3 ? 4 : prev === 4 ? 5 : 3;
+      setGame(newGame(nextSize));
+      setGameOver(false);
+      setGameOverOpen(false);
+      setSaveOpen(false);
+      setPending(null);
+      setMovesPaid(0);
+      setSpentMicro(0);
+      setToast({ message: `${nextSize}x${nextSize} Mode` });
+      setTimeout(() => setToast(null), 1200);
+      return nextSize;
+    });
   }, []);
 
   const loadLeaderboard = useCallback(async (doRefresh: boolean = false) => {
@@ -589,7 +606,7 @@ try {
     const ok = await saveScoreAnytime();
     if (ok) {
       // Start a fresh game without overriding the "Score saved ✅" toast.
-      setGame(newGame());
+      setGame(newGame(gridSize));
       setGameOver(false);
       setGameOverOpen(false);
       setSaveOpen(false);
@@ -684,6 +701,16 @@ try {
 >
   <Share2 className="h-4 w-4" />
 </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={cycleGridSize}
+              aria-label="Grid Size"
+            >
+              <Grid className="h-4 w-4" />
+              <span className="ml-1 text-xs font-semibold">{gridSize}x{gridSize}</span>
+            </Button>
 
             <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
               <Palette className="h-4 w-4" />
