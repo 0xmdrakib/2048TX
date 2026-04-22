@@ -25,10 +25,10 @@ export default function Tile({
         border: style.border ? `1px solid ${style.border}` : undefined,
         boxShadow: style.glow,
       }}
-      initial={{ scale: 0.8, opacity: 0 }}
+      initial={{ scale: 0.5, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      exit={{ scale: 0.8, opacity: 0 }}
-      transition={{ type: "spring", stiffness: 420, damping: 28 }}
+      exit={{ scale: 0.5, opacity: 0 }}
+      transition={{ type: "spring", stiffness: 350, damping: 25 }}
     >
       <span className={big ? "text-2xl" : "text-3xl"}>{value}</span>
     </motion.div>
