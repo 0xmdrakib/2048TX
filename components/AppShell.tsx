@@ -526,17 +526,19 @@ export default function AppShell() {
   }, [onDirection]);
 
   const saveScoreAnytime = useCallback(async (): Promise<boolean> => {
-    // ডাবল ক্লিক ঠেকানোর জন্য শুরুতেই busy সেট করা হলো 
     if (busy) return false;
-    setBusy(true);
-
+    setBusy(true); // ফাংশন শুরুতেই busy করে দিলাম
     try {
       if (!contract) {
-        throw new Error("Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS");
+        setToast({ message: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS" });
+        setTimeout(() => setToast(null), 2600);
+        return false;
       }
       const p = await getEvmProvider();
       if (!p) {
-        throw new Error("No wallet provider found.");
+        setToast({ message: "No wallet provider found." });
+        setTimeout(() => setToast(null), 2600);
+        return false;
       }
       setProviderReady(true);
 
@@ -647,6 +649,7 @@ export default function AppShell() {
   }, [contract, chainId, score, address, busy]);
 
   const saveScoreFromGameOver = useCallback(async () => {
+    if (busy) return;
     const ok = await saveScoreAnytime();
     if (ok) {
       setGame(newGame(gridSize));
@@ -658,7 +661,7 @@ export default function AppShell() {
     } else {
       setGameOverOpen(true);
     }
-  }, [saveScoreAnytime, gridSize]);
+  }, [saveScoreAnytime, gridSize, busy]);
 
   const modeLabel = mode === "classic" ? "Classic" : "Pay-per-move";
 
@@ -745,18 +748,16 @@ export default function AppShell() {
         </div>
 
         <div className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3">
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur flex flex-col justify-center min-w-0">
-            <div className="text-[11px] font-semibold opacity-70 truncate">SCORE</div>
-            {/* tabular-nums ব্যবহার করায় সংখ্যাগুলো কাঁপা বা ফ্লিকার করা বন্ধ হয়ে যাবে */}
-            <div className="text-xl font-extrabold tabular-nums truncate">{score}</div>
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
+            <div className="text-[11px] font-semibold opacity-70">SCORE</div>
+            <div className="text-xl font-extrabold tabular-nums tracking-tight">{score}</div>
           </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur flex flex-col justify-center min-w-0">
-            <div className="text-[11px] font-semibold opacity-70 truncate">BEST (ONCHAIN)</div>
-            {/* tabular-nums ব্যবহার করায় সংখ্যাগুলো কাঁপা বা ফ্লিকার করা বন্ধ হয়ে যাবে */}
-            <div className="text-xl font-extrabold tabular-nums truncate">{onchainBest ?? "—"}</div>
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
+            <div className="text-[11px] font-semibold opacity-70">BEST (ONCHAIN)</div>
+            <div className="text-xl font-extrabold tabular-nums tracking-tight">{onchainBest ?? "—"}</div>
           </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur min-w-0">
-            <div className="text-[11px] font-semibold opacity-70 truncate">MODE</div>
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
+            <div className="text-[11px] font-semibold opacity-70">MODE</div>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <Button
                 size="sm"
@@ -1017,9 +1018,9 @@ export default function AppShell() {
             Your best score is only counted when you save it onchain.
           </div>
 
-          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur flex flex-col justify-center">
+          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
             <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
-            <div className="text-3xl font-extrabold tabular-nums truncate">{score}</div>
+            <div className="text-3xl font-extrabold">{score}</div>
           </div>
 
           <div className="mt-4 flex gap-2">
