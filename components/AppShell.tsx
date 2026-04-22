@@ -985,7 +985,7 @@ export default function AppShell() {
         title="Game over"
         onClose={() => setGameOverOpen(false)}
       >
-        {/* pb-10 ক্লাসটি নিচের দিকে কিছুটা স্পেস তৈরি করে কনটেন্টকে উপরে তুলে দেবে */}
+        {/* game over tab will be lifted few space from bottom*/}
         <div className="pb-10">
           <div className="text-sm text-[var(--muted)]">
             Your best score is only counted when you save it onchain.
