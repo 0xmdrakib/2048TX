@@ -53,7 +53,6 @@ export default function AppShell() {
   const [gameOverOpen, setGameOverOpen] = useState(false);
 
   const [themeOpen, setThemeOpen] = useState(false);
-  const [saveOpen, setSaveOpen] = useState(false);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [leaderboard, setLeaderboard] = useState<Array<{ address: string; bestScore: number }> | null>(null);
   const [leaderboardErr, setLeaderboardErr] = useState<string | null>(null);
@@ -126,7 +125,6 @@ export default function AppShell() {
     setGame(newGame(gridSize));
     setGameOver(false);
     setGameOverOpen(false);
-    setSaveOpen(false);
     setPending(null);
     setMovesPaid(0);
     setSpentMicro(0);
@@ -140,7 +138,6 @@ export default function AppShell() {
       setGame(newGame(nextSize));
       setGameOver(false);
       setGameOverOpen(false);
-      setSaveOpen(false);
       setPending(null);
       setMovesPaid(0);
       setSpentMicro(0);
@@ -568,11 +565,6 @@ try {
       // Whichever confirms first: receipt OR onchain state change.
       await Promise.race(racers);
 
-      // Close the sheet immediately after the tx is confirmed.
-      // Do NOT block UX on a follow-up read, because some embedded providers
-      // (especially in the Base app) can hang on eth_call even after a successful tx.
-      setSaveOpen(false);
-
       setToast({ message: "Score saved ✅" });
       setTimeout(() => setToast(null), 1400);
 
@@ -600,16 +592,12 @@ try {
   // Game Over flow: save directly, then either auto-start a new game (success)
   // or keep Game Over sheet open (reject/fail).
   const saveScoreFromGameOver = useCallback(async () => {
-    // Never open the manual save sheet from Game Over.
-    setSaveOpen(false);
-
     const ok = await saveScoreAnytime();
     if (ok) {
       // Start a fresh game without overriding the "Score saved ✅" toast.
       setGame(newGame(gridSize));
       setGameOver(false);
       setGameOverOpen(false);
-      setSaveOpen(false);
       setPending(null);
       setMovesPaid(0);
       setSpentMicro(0);
@@ -780,10 +768,11 @@ try {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveOpen(true)}
+              onClick={saveScoreAnytime}
+              disabled={busy}
             >
               <Save className="mr-2 h-4 w-4" />
-              Save score
+              {busy ? "Working…" : "Save score"}
             </Button>
           </div>
         </div>
@@ -1016,33 +1005,6 @@ try {
           </Button>
         </div>
       </Sheet>
-
-      <Sheet open={saveOpen} title="Save score onchain" onClose={() => setSaveOpen(false)}>
-        <div className="text-sm text-[var(--muted)]">
-          Best score is tracked onchain only. If you don&apos;t save, it won&apos;t count.
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
-          <div className="text-xs font-semibold opacity-70">CURRENT SCORE</div>
-          <div className="text-3xl font-extrabold">{score}</div>
-        </div>
-
-        <div className="mt-4 flex gap-2">
-          <Button onClick={saveScoreAnytime} disabled={busy} className="w-full">
-            {busy ? "Working…" : "Save now"}
-          </Button>
-          <Button variant="outline" onClick={() => setSaveOpen(false)} className="w-full">
-            Not now
-          </Button>
-        </div>
-
-        {!contract ? (
-          <div className="mt-3 text-xs text-red-600">
-            Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS
-          </div>
-        ) : null}
-      </Sheet>
-
     </div>
   );
 }
