@@ -985,33 +985,36 @@ export default function AppShell() {
         title="Game over"
         onClose={() => setGameOverOpen(false)}
       >
-        <div className="text-sm text-[var(--muted)]">
-          Your best score is only counted when you save it onchain.
-        </div>
+        {/* pb-10 ক্লাসটি নিচের দিকে কিছুটা স্পেস তৈরি করে কনটেন্টকে উপরে তুলে দেবে */}
+        <div className="pb-10">
+          <div className="text-sm text-[var(--muted)]">
+            Your best score is only counted when you save it onchain.
+          </div>
 
-        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
-          <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
-          <div className="text-3xl font-extrabold">{score}</div>
-        </div>
+          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
+            <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
+            <div className="text-3xl font-extrabold">{score}</div>
+          </div>
 
-        <div className="mt-4 flex gap-2">
-          <Button
-            onClick={saveScoreFromGameOver} disabled={busy}
-            className="w-full"
-          >
-            {busy ? "Saving..." : "Save score onchain"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
-            className="w-full"
-          >
-            Share your score
-          </Button>
+          <div className="mt-4 flex gap-2">
+            <Button
+              onClick={saveScoreFromGameOver} disabled={busy}
+              className="w-full"
+            >
+              {busy ? "Saving..." : "Save score onchain"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
+              className="w-full"
+            >
+              Share your score
+            </Button>
 
-          <Button variant="outline" onClick={reset} className="w-full">
-            New game
-          </Button>
+            <Button variant="outline" onClick={reset} className="w-full">
+              New game
+            </Button>
+          </div>
         </div>
       </Sheet>
 
