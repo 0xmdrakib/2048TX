@@ -2,65 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: #faf8f0;
-  --text: #2b2621;
-  --muted: rgba(43,38,33,0.65);
-  --card: rgba(255,255,255,0.65);
-  --cardBorder: rgba(0,0,0,0.08);
-  --board: #b9a58d;
-  --cell: rgba(255,255,255,0.30);
-  --chip: rgba(0,0,0,0.06);
+html, body {
+  /* Prevent pull-to-refresh and swipe navigation */
+  overscroll-behavior: none;
+  /* Prevent unwanted text selection while swiping */
+  -webkit-user-select: none;
+  user-select: none;
+  /* Remove highlight on touch/tap */
+  -webkit-tap-highlight-color: transparent;
+  /* Disable panning and zooming natively for better swipe control */
+  touch-action: pan-y;
 }
 
-[data-theme="neon"] {
-  --bg: #1a0b2e;
-  --text: #f5f5ff;
-  --muted: rgba(245,245,255,0.65);
-  --card: rgba(255,255,255,0.06);
-  --cardBorder: rgba(255,255,255,0.14);
-  --board: rgba(0,0,0,0.55);
-  --cell: rgba(255,255,255,0.08);
-  --chip: rgba(255,255,255,0.10);
-}
+@layer base {
+  :root {
+    --background: 40 25% 95%; /* #F7F5EC */
+    --foreground: 0 0% 15%;
+    
+    --board: 35 15% 70%;      /* #C1B5A6 */
+    --cell: 35 15% 65%;       /* #B6AA9C */
+    --card: 0 0% 100%;
+    --cardBorder: 0 0% 90%;
+    --primary: 0 0% 5%;
+    --primaryFg: 0 0% 100%;
+    --muted: 0 0% 45%;
+    --overlay: 0 0% 0%;
+  }
 
-[data-theme="pastel"] {
-  --bg: #fbf7ff;
-  --text: #2a1f3b;
-  --muted: rgba(42,31,59,0.65);
-  --card: rgba(255,255,255,0.75);
-  --cardBorder: rgba(42,31,59,0.10);
-  --board: #e7d8ff;
-  --cell: rgba(42,31,59,0.08);
-  --chip: rgba(42,31,59,0.08);
-}
+  /* ... আপনার বাকি সিএসএস রুলস যেমন ছিল তেমনই থাকবে ... */
+  [data-theme="dark"] {
+    --background: 220 10% 10%;
+    --foreground: 0 0% 95%;
+    
+    --board: 220 10% 20%;
+    --cell: 220 10% 15%;
+    --card: 220 10% 15%;
+    --cardBorder: 220 10% 25%;
+    --primary: 0 0% 95%;
+    --primaryFg: 0 0% 5%;
+    --muted: 0 0% 60%;
+    --overlay: 0 0% 0%;
+  }
 
-[data-theme="amoled"] {
-  --bg: #07070a;
-  --text: #f6f6f7;
-  --muted: rgba(246,246,247,0.62);
-  --card: rgba(255,255,255,0.04);
-  --cardBorder: rgba(255,255,255,0.14);
-  --board: rgba(255,255,255,0.08);
-  --cell: rgba(255,255,255,0.05);
-  --chip: rgba(255,255,255,0.10);
+  [data-theme="neon"] {
+    --background: 260 40% 5%;
+    --foreground: 180 100% 70%;
+    
+    --board: 260 40% 15%;
+    --cell: 260 40% 10%;
+    --card: 260 40% 15%;
+    --cardBorder: 180 100% 40%;
+    --primary: 180 100% 50%;
+    --primaryFg: 0 0% 5%;
+    --muted: 260 40% 60%;
+    --overlay: 260 60% 5%;
+  }
 }
-
-html, body { height: 100%; width: 100%; overflow-x: hidden; }
 
 body {
-  background: var(--bg);
-  color: var(--text);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overscroll-behavior: none;
-  touch-action: manipulation;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  transition: background-color 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
-
-/* Make BasePayButton fit cleanly inside our cards/sheets */
-.basePayWrap { width: 100%; }
-.basePayWrap button { width: 100% !important; display: block; }
-
-* { box-sizing: border-box; }
-
-.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
