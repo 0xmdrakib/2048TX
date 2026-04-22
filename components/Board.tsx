@@ -39,7 +39,21 @@ export default function Board({
           >
             <AnimatePresence>
               {tile ? (
-                <motion.div key={tile.id} layout className="absolute inset-0">
+                {/* layoutId={tile.id} */}
+                <motion.div
+                  key={tile.id}
+                  layoutId={tile.id}
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.5, opacity: 0 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 350,
+                    damping: 25,
+                    mass: 0.8
+                  }}
+                  className="absolute inset-0 z-10"
+                >
                   <Tile value={tile.value} theme={theme} />
                 </motion.div>
               ) : null}
