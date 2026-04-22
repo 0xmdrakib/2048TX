@@ -526,22 +526,21 @@ export default function AppShell() {
   }, [onDirection]);
 
   const saveScoreAnytime = useCallback(async (): Promise<boolean> => {
-    if (!contract) {
-      setToast({ message: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS" });
-      setTimeout(() => setToast(null), 2600);
-      return false;
-    }
-    const p = await getEvmProvider();
-    if (!p) {
-      setToast({ message: "No wallet provider found." });
-      setTimeout(() => setToast(null), 2600);
-      return false;
-    }
-    setProviderReady(true);
+    // ডাবল ক্লিক ঠেকানোর জন্য শুরুতেই busy সেট করা হলো 
+    if (busy) return false;
+    setBusy(true);
 
-    const provider = p as NonNullable<typeof p>;
     try {
-      setBusy(true);
+      if (!contract) {
+        throw new Error("Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS");
+      }
+      const p = await getEvmProvider();
+      if (!p) {
+        throw new Error("No wallet provider found.");
+      }
+      setProviderReady(true);
+
+      const provider = p as NonNullable<typeof p>;
       const chainIdHex = (await provider.request({
         method: "eth_chainId",
         params: [],
@@ -645,7 +644,7 @@ export default function AppShell() {
     } finally {
       setBusy(false);
     }
-  }, [contract, chainId, score, address]);
+  }, [contract, chainId, score, address, busy]);
 
   const saveScoreFromGameOver = useCallback(async () => {
     const ok = await saveScoreAnytime();
@@ -746,16 +745,18 @@ export default function AppShell() {
         </div>
 
         <div className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3">
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
-            <div className="text-[11px] font-semibold opacity-70">SCORE</div>
-            <div className="text-xl font-extrabold">{score}</div>
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur flex flex-col justify-center min-w-0">
+            <div className="text-[11px] font-semibold opacity-70 truncate">SCORE</div>
+            {/* tabular-nums ব্যবহার করায় সংখ্যাগুলো কাঁপা বা ফ্লিকার করা বন্ধ হয়ে যাবে */}
+            <div className="text-xl font-extrabold tabular-nums truncate">{score}</div>
           </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
-            <div className="text-[11px] font-semibold opacity-70">BEST (ONCHAIN)</div>
-            <div className="text-xl font-extrabold">{onchainBest ?? "—"}</div>
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur flex flex-col justify-center min-w-0">
+            <div className="text-[11px] font-semibold opacity-70 truncate">BEST (ONCHAIN)</div>
+            {/* tabular-nums ব্যবহার করায় সংখ্যাগুলো কাঁপা বা ফ্লিকার করা বন্ধ হয়ে যাবে */}
+            <div className="text-xl font-extrabold tabular-nums truncate">{onchainBest ?? "—"}</div>
           </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
-            <div className="text-[11px] font-semibold opacity-70">MODE</div>
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur min-w-0">
+            <div className="text-[11px] font-semibold opacity-70 truncate">MODE</div>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <Button
                 size="sm"
@@ -1016,9 +1017,9 @@ export default function AppShell() {
             Your best score is only counted when you save it onchain.
           </div>
 
-          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
+          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur flex flex-col justify-center">
             <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
-            <div className="text-3xl font-extrabold">{score}</div>
+            <div className="text-3xl font-extrabold tabular-nums truncate">{score}</div>
           </div>
 
           <div className="mt-4 flex gap-2">
