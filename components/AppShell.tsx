@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Share2, Power, Grid } from "lucide-react";
+import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -37,13 +37,75 @@ type PendingMove = {
   amount: string;
 };
 
+// --- PREMIUM SOUND EFFECTS SYNTHESIZER ---
+let audioCtx: AudioContext | null = null;
+function getAudioContext() {
+  if (typeof window === "undefined") return null;
+  if (!audioCtx) {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    if (Ctx) audioCtx = new Ctx();
+  }
+  return audioCtx;
+}
+
+function playSound(type: "move" | "merge" | "success" | "gameover") {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === "suspended") void ctx.resume();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+    if (type === "move") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(110, now + 0.08);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } else if (type === "merge") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === "success") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(554.37, now + 0.1);
+      osc.frequency.setValueAtTime(659.25, now + 0.2);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    } else if (type === "gameover") {
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.exponentialRampToValueAtTime(100, now + 0.5);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.5);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    }
+  } catch (e) {
+    // Silently fail if audio context is blocked
+  }
+}
+// -----------------------------------------
+
 function isUserRejected(e: any) {
   const msg = String(e?.message ?? "").toLowerCase();
   return e?.code === 4001 || msg.includes("user rejected") || msg.includes("rejected") || msg.includes("cancel");
 }
 
 export default function AppShell() {
-  // Theme persists; mode does NOT (default classic every open).
   const [theme, setTheme] = useState<ThemeId>("classic");
   const [mode, setMode] = useState<Mode>("classic");
   const [gridSize, setGridSize] = useState<number>(4);
@@ -53,7 +115,6 @@ export default function AppShell() {
   const [gameOverOpen, setGameOverOpen] = useState(false);
 
   const [themeOpen, setThemeOpen] = useState(false);
-  const [saveOpen, setSaveOpen] = useState(false);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [leaderboard, setLeaderboard] = useState<Array<{ address: string; bestScore: number }> | null>(null);
   const [leaderboardErr, setLeaderboardErr] = useState<string | null>(null);
@@ -76,7 +137,6 @@ export default function AppShell() {
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Web-only injected wallet selection (EIP-6963). Mini app providers bypass this.
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [walletChoices, setWalletChoices] = useState<Array<{ id: string; name: string; icon?: string }> | null>(null);
   const [walletChoicesLoading, setWalletChoicesLoading] = useState(false);
@@ -84,9 +144,7 @@ export default function AppShell() {
   const [toast, setToast] = useState<ToastState>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
-  // Prevent rapid multi-swipes from stacking multiple payments before React state updates.
   const payLockRef = useRef(false);
-  // When the weekly countdown hits 00:00:00, we call a server endpoint once to snapshot the finished week.
   const rolloverTriggeredForWeekRef = useRef<number | null>(null);
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
@@ -99,7 +157,6 @@ export default function AppShell() {
     return idx >= 0 ? idx + 1 : null;
   }, [address, leaderboard]);
 
-  // SDK ready (Farcaster mini apps show splash until ready())
   useEffect(() => {
     (async () => {
       try {
@@ -111,11 +168,11 @@ export default function AppShell() {
     })();
   }, []);
 
-  // Theme persistence only
   useEffect(() => {
     const saved = typeof window !== "undefined" ? (window.localStorage.getItem("theme") as ThemeId | null) : null;
     if (saved) setTheme(saved);
   }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("theme", theme);
@@ -126,7 +183,6 @@ export default function AppShell() {
     setGame(newGame(gridSize));
     setGameOver(false);
     setGameOverOpen(false);
-    setSaveOpen(false);
     setPending(null);
     setMovesPaid(0);
     setSpentMicro(0);
@@ -140,7 +196,6 @@ export default function AppShell() {
       setGame(newGame(nextSize));
       setGameOver(false);
       setGameOverOpen(false);
-      setSaveOpen(false);
       setPending(null);
       setMovesPaid(0);
       setSpentMicro(0);
@@ -151,90 +206,79 @@ export default function AppShell() {
   }, []);
 
   const loadLeaderboard = useCallback(async (doRefresh: boolean = false) => {
-  setLeaderboardLoading(true);
-  setLeaderboardErr(null);
-  try {
-    const url = doRefresh ? "/api/leaderboard?refresh=1" : "/api/leaderboard";
-    const res = await fetch(url, { cache: "no-store" });
-    const json = await res.json();
-    if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load leaderboard");
-    setLeaderboard(json.top100 ?? []);
-    if (json.weekEndsAt) {
-      setLeaderboardMeta({
-        weekIndex: Number(json.weekIndex ?? 0),
-        weekStartsAt: String(json.weekStartsAt ?? ""),
-        weekEndsAt: String(json.weekEndsAt ?? ""),
-        secondsLeft: Number(json.secondsLeft ?? 0),
-      });
+    setLeaderboardLoading(true);
+    setLeaderboardErr(null);
+    try {
+      const url = doRefresh ? "/api/leaderboard?refresh=1" : "/api/leaderboard";
+      const res = await fetch(url, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load leaderboard");
+      setLeaderboard(json.top100 ?? []);
+      if (json.weekEndsAt) {
+        setLeaderboardMeta({
+          weekIndex: Number(json.weekIndex ?? 0),
+          weekStartsAt: String(json.weekStartsAt ?? ""),
+          weekEndsAt: String(json.weekEndsAt ?? ""),
+          secondsLeft: Number(json.secondsLeft ?? 0),
+        });
+      }
+    } catch (e: any) {
+      setLeaderboard(null);
+      setLeaderboardMeta(null);
+      setLeaderboardErr(String(e?.message ?? e));
+    } finally {
+      setLeaderboardLoading(false);
     }
-  } catch (e: any) {
-    setLeaderboard(null);
-    setLeaderboardMeta(null);
-    setLeaderboardErr(String(e?.message ?? e));
-  } finally {
-    setLeaderboardLoading(false);
-  }
-}, []);
-
+  }, []);
 
   useEffect(() => {
-    // Fast open: do NOT force onchain refresh here.
-    // Push-based ingestion keeps it fresh, and the Refresh button is available for manual repair.
     if (leaderboardOpen) loadLeaderboard(false);
   }, [leaderboardOpen, loadLeaderboard]);
 
-// While the leaderboard sheet is open, poll periodically so it updates without manual refresh.
-useEffect(() => {
-  if (!leaderboardOpen) return;
-  const id = window.setInterval(() => {
-    loadLeaderboard(false);
-  }, 20000);
-  return () => window.clearInterval(id);
-}, [leaderboardOpen, loadLeaderboard]);
+  useEffect(() => {
+    if (!leaderboardOpen) return;
+    const id = window.setInterval(() => {
+      loadLeaderboard(false);
+    }, 20000);
+    return () => window.clearInterval(id);
+  }, [leaderboardOpen, loadLeaderboard]);
 
-// Live countdown for "time left this week"
-useEffect(() => {
-  if (!leaderboardOpen) return;
-  if (!leaderboardMeta?.weekEndsAt) return;
+  useEffect(() => {
+    if (!leaderboardOpen) return;
+    if (!leaderboardMeta?.weekEndsAt) return;
 
-  const tick = () => {
-    const end = new Date(leaderboardMeta.weekEndsAt).getTime();
-    const diff = Math.max(0, end - Date.now());
-    const totalSeconds = Math.floor(diff / 1000);
+    const tick = () => {
+      const end = new Date(leaderboardMeta.weekEndsAt).getTime();
+      const diff = Math.max(0, end - Date.now());
+      const totalSeconds = Math.floor(diff / 1000);
 
-    // If the timer hits zero while the sheet is open, ask the server to finalize snapshots
-    // and immediately start showing the new week. This is the closest you can get to an
-    // "exact rollover" without any background scheduler.
-    if (totalSeconds === 0 && rolloverTriggeredForWeekRef.current !== leaderboardMeta.weekIndex) {
-      rolloverTriggeredForWeekRef.current = leaderboardMeta.weekIndex;
-      void (async () => {
-        try {
-          await fetch("/api/weekly/rollover", { method: "POST" });
-        } catch {
-          // Non-fatal: next request will still finalize the week.
-        } finally {
-          // Reload leaderboard meta so UI flips to the new week quickly.
-          loadLeaderboard(false);
-        }
-      })();
-    }
+      if (totalSeconds === 0 && rolloverTriggeredForWeekRef.current !== leaderboardMeta.weekIndex) {
+        rolloverTriggeredForWeekRef.current = leaderboardMeta.weekIndex;
+        void (async () => {
+          try {
+            await fetch("/api/weekly/rollover", { method: "POST" });
+          } catch {
+            // Non-fatal
+          } finally {
+            loadLeaderboard(false);
+          }
+        })();
+      }
 
-    const d = Math.floor(totalSeconds / 86400);
-    const h = Math.floor((totalSeconds % 86400) / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
+      const d = Math.floor(totalSeconds / 86400);
+      const h = Math.floor((totalSeconds % 86400) / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
 
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const label = d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`;
-    setWeekTimeLeft(label);
-  };
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const label = d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`;
+      setWeekTimeLeft(label);
+    };
 
-  tick();
-  const id = window.setInterval(tick, 1000);
-  return () => window.clearInterval(id);
-}, [leaderboardOpen, leaderboardMeta, loadLeaderboard]);
-
-
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [leaderboardOpen, leaderboardMeta, loadLeaderboard]);
 
   const refreshOnchainBest = useCallback(async () => {
     if (!contract) return;
@@ -242,16 +286,15 @@ useEffect(() => {
     if (!p) return;
     setProviderReady(true);
 
-    
     const provider = p as NonNullable<typeof p>;
-const acct = await getAccount(provider);
+    const acct = await getAccount(provider);
     if (!acct) return;
     setAddress(acct);
 
     try {
       await ensureChain(provider, chainId);
     } catch {
-      // if chain switch fails, reads might still work on current chain, but score contract likely won't.
+      // ignore
     }
 
     try {
@@ -276,7 +319,7 @@ const acct = await getAccount(provider);
     setProviderReady(true);
     
     const provider = p as NonNullable<typeof p>;
-try {
+    try {
       await ensureChain(provider, chainId);
       const acct = await requestAccount(provider);
       setAddress(acct);
@@ -299,8 +342,6 @@ try {
   }, []);
 
   const connect = useCallback(async () => {
-    // On normal web (outside Farcaster/Base app), support multi injected wallets.
-    // If multiple injected wallets exist and the user hasn't chosen one yet, show a picker.
     let inMiniApp = false;
     try {
       const { sdk } = await import("@farcaster/miniapp-sdk");
@@ -331,8 +372,8 @@ try {
       const ok = hasMoves(b);
       if (!ok) {
         setGameOver(true);
-        // Show a dedicated Game Over sheet. Saving is manual (user must tap).
         setGameOverOpen(true);
+        playSound("gameover");
       }
     },
     []
@@ -343,6 +384,9 @@ try {
       if (gameOver || busy) return;
       const r = move(board, dir);
       if (!r.moved) return;
+
+      if (r.scoreGain > 0) playSound("merge");
+      else playSound("move");
 
       const afterSpawn = spawnRandomTile(r.board);
       setGame({ board: afterSpawn, score: score + r.scoreGain });
@@ -360,11 +404,11 @@ try {
         return;
       }
 
-if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
-  setToast({ message: "Invalid NEXT_PUBLIC_PAY_RECIPIENT address" });
-  setTimeout(() => setToast(null), 2400);
-  return;
-}
+      if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
+        setToast({ message: "Invalid NEXT_PUBLIC_PAY_RECIPIENT address" });
+        setTimeout(() => setToast(null), 2400);
+        return;
+      }
 
       const r = move(board, dir);
       if (!r.moved) return;
@@ -377,46 +421,45 @@ if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
         setBusy(true);
         setToast({ message: `Opening payment… (${amount} USDC)` });
 
-        // Send a real onchain USDC transfer via the host wallet provider.
-// This keeps the confirmation sheet inside the mini app (no keys.coinbase.com redirect).
-const p = await getEvmProvider();
-if (!p) {
-  setToast({ message: "No wallet provider found in this client." });
-  setTimeout(() => setToast(null), 2200);
-  return;
-}
-setProviderReady(true);
+        const p = await getEvmProvider();
+        if (!p) {
+          setToast({ message: "No wallet provider found in this client." });
+          setTimeout(() => setToast(null), 2200);
+          return;
+        }
+        setProviderReady(true);
 
-const provider = p as NonNullable<typeof p>;
-await ensureChain(provider, chainId);
+        const provider = p as NonNullable<typeof p>;
+        await ensureChain(provider, chainId);
 
-const acct = (address ?? (await getAccount(provider)) ?? (await requestAccount(provider))) as `0x${string}`;
-setAddress(acct);
+        const acct = (address ?? (await getAccount(provider)) ?? (await requestAccount(provider))) as `0x${string}`;
+        setAddress(acct);
 
-// micro is already USDC smallest units (6 decimals): 1..5 => 0.000001..0.000005 USDC
-const txHash = await sendUsdcTransfer({
-  provider,
-  from: acct,
-  to: payRecipient as `0x${string}`,
-  amountUnits: BigInt(micro),
-});
+        const txHash = await sendUsdcTransfer({
+          provider,
+          from: acct,
+          to: payRecipient as `0x${string}`,
+          amountUnits: BigInt(micro),
+        });
 
-setToast({ message: "Tx sent. Waiting confirmation…" });
-await waitForReceipt({ provider, txHash, timeoutMs: 60_000 });
+        setToast({ message: "Tx sent. Waiting confirmation…" });
+        await waitForReceipt({ provider, txHash, timeoutMs: 60_000 });
 
-const afterSpawn = spawnRandomTile(r.board);
-setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
-setMovesPaid((m) => m + 1);
-setSpentMicro((s) => s + micro);
+        const afterSpawn = spawnRandomTile(r.board);
+        setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
+        setMovesPaid((m) => m + 1);
+        setSpentMicro((s) => s + micro);
 
-setToast({ message: "Move confirmed ✅" });
-setTimeout(() => setToast(null), 1200);
+        if (r.scoreGain > 0) playSound("merge");
+        else playSound("move");
 
-checkGameOver(afterSpawn);
-return;
+        setToast({ message: "Move confirmed ✅" });
+        setTimeout(() => setToast(null), 1200);
 
-} catch (e: any) {
-        // No desync: do NOT apply move
+        checkGameOver(afterSpawn);
+        return;
+
+      } catch (e: any) {
         setToast({ message: isUserRejected(e) ? "User rejected tx" : e?.message ?? "Payment cancelled/failed" });
         setTimeout(() => setToast(null), 2500);
       } finally {
@@ -470,14 +513,9 @@ return;
     }
     setProviderReady(true);
 
-    
     const provider = p as NonNullable<typeof p>;
-try {
+    try {
       setBusy(true);
-      // IMPORTANT UX: keep score-saving to a single wallet prompt.
-      // - Don't auto-switch chains (that opens an extra prompt)
-      // - Don't auto-connect accounts here (that opens an extra prompt)
-      // Users should tap the "Connect" button first.
       const chainIdHex = (await provider.request({
         method: "eth_chainId",
         params: [],
@@ -494,8 +532,6 @@ try {
       }
       setAddress(acct);
 
-      // Capture the current submissions count so we can confirm success even if
-      // the embedded provider is flaky about receipts.
       let prevSubmissions: number | null = null;
       try {
         prevSubmissions = await getSubmissions({ provider, contract, address: acct });
@@ -506,8 +542,6 @@ try {
       const txHash = await submitScore({ provider, contract, from: acct, score });
       setToast({ message: "Saving score onchain…" });
 
-      // Server-side confirmation + ingestion (more reliable than some embedded wallet providers).
-      // This also keeps the weekly leaderboard updated without any cron.
       const serverConfirmPromise = (async () => {
         const started = Date.now();
         while (Date.now() - started < 120_000) {
@@ -528,7 +562,6 @@ try {
 
             throw new Error(j?.error ?? j?.message ?? "Server could not ingest leaderboard update");
           } catch {
-            // retry
             await new Promise((r) => setTimeout(r, 1500));
           }
         }
@@ -546,8 +579,6 @@ try {
 
       const racers: Promise<any>[] = [receiptPromise, serverConfirmPromise];
 
-      // Fallback confirmation: if we can observe submissions incrementing, we know
-      // the transaction was mined (this works for both "best" and non-best scores).
       if (prevSubmissions != null) {
         const submissionsConfirmPromise = (async () => {
           const started = Date.now();
@@ -565,64 +596,46 @@ try {
         racers.push(submissionsConfirmPromise);
       }
 
-      // Whichever confirms first: receipt OR onchain state change.
       await Promise.race(racers);
 
-      // Close the sheet immediately after the tx is confirmed.
-      // Do NOT block UX on a follow-up read, because some embedded providers
-      // (especially in the Base app) can hang on eth_call even after a successful tx.
-      setSaveOpen(false);
-
+      playSound("success");
       setToast({ message: "Score saved ✅" });
       setTimeout(() => setToast(null), 1400);
 
-      // Refresh best in the background (non-blocking).
       void (async () => {
         try {
           const best = await getBestScore({ provider, contract, address: acct });
           setOnchainBest(best);
         } catch {
-          // Non-fatal: the tx is saved even if we can't refresh best right now.
+          // Non-fatal
         }
       })();
 
       return true;
-} catch (e: any) {
+    } catch (e: any) {
       setToast({ message: e?.message ?? "Save failed" });
       setTimeout(() => setToast(null), 3000);
-    
       return false;
     } finally {
       setBusy(false);
     }
   }, [contract, chainId, score, address]);
 
-  // Game Over flow: save directly, then either auto-start a new game (success)
-  // or keep Game Over sheet open (reject/fail).
   const saveScoreFromGameOver = useCallback(async () => {
-    // Never open the manual save sheet from Game Over.
-    setSaveOpen(false);
-
     const ok = await saveScoreAnytime();
     if (ok) {
-      // Start a fresh game without overriding the "Score saved ✅" toast.
       setGame(newGame(gridSize));
       setGameOver(false);
       setGameOverOpen(false);
-      setSaveOpen(false);
       setPending(null);
       setMovesPaid(0);
       setSpentMicro(0);
     } else {
-      // Keep/reopen Game Over so user can retry or start a new game.
       setGameOverOpen(true);
     }
-  }, [saveScoreAnytime]);
-
+  }, [saveScoreAnytime, gridSize]);
 
   const modeLabel = mode === "classic" ? "Classic" : "Pay-per-move";
-
-
 
   const shareCast = async (castText: string) => {
     const url = (() => {
@@ -636,7 +649,6 @@ try {
       }
     })();
 
-    // Farcaster/Base miniapp composer
     try {
       const { sdk } = await import("@farcaster/miniapp-sdk");
       await sdk.actions.composeCast({ text: castText, embeds: [url] });
@@ -645,7 +657,6 @@ try {
       // fall back
     }
 
-    // Native share (mobile browsers)
     try {
       if (navigator.share) {
         await navigator.share({ text: `${castText}\n\n${url}` });
@@ -653,7 +664,6 @@ try {
       }
     } catch {}
 
-    // Clipboard fallback
     try {
       await navigator.clipboard.writeText(`${castText}\n\n${url}`);
       setToast({ message: "Copied share text ✅" });
@@ -678,13 +688,13 @@ try {
                 <span className="font-semibold">{modeLabel}</span>
               </Chip>
               {mode === "pay" ? (
-  <Chip className="w-fit pl-4 pr-5 py-1.5">
-    <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
-    <span className="font-semibold text-[12px] whitespace-nowrap relative top-[1px]">
-      {movesPaid} moves • {formatMicroUsdc(spentMicro)}${"\u00A0"}
-    </span>
-  </Chip>
-) : null}
+                <Chip className="w-fit pl-4 pr-5 py-1.5">
+                  <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
+                  <span className="font-semibold text-[12px] whitespace-nowrap relative top-[1px]">
+                    {movesPaid} moves • {formatMicroUsdc(spentMicro)}${"\u00A0"}
+                  </span>
+                </Chip>
+              ) : null}
             </div>
           </div>
 
@@ -692,15 +702,6 @@ try {
             <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
               <Trophy className="h-4 w-4" />
             </Button>
-
-<Button
-  variant="ghost"
-  size="sm"
-  onClick={() => shareCast("I just played 2048 TX")}
-  aria-label="Share"
->
-  <Share2 className="h-4 w-4" />
-</Button>
 
             <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
               <Palette className="h-4 w-4" />
@@ -718,7 +719,6 @@ try {
           </div>
         </div>
 
-        {/* Make MODE a bit wider to prevent UI jitter on small screens */}
         <div className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3">
           <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
             <div className="text-[11px] font-semibold opacity-70">SCORE</div>
@@ -780,10 +780,11 @@ try {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveOpen(true)}
+              onClick={() => void saveScoreAnytime()}
+              disabled={busy}
             >
               <Save className="mr-2 h-4 w-4" />
-              Save score
+              {busy ? "Saving…" : "Save score"}
             </Button>
           </div>
         </div>
@@ -807,11 +808,9 @@ try {
           </Button>
         </div>
 
-        {/* Game Over UI is shown as a Sheet (bottom drawer), not an inline card. */}
-
         {mode === "classic" ? (
           <div className="mt-6 text-center text-xs text-[var(--muted)]">
-            Swipe or use arrows to play the game. In Pay mode, the every move commits only after a successful payment.
+            Swipe or use arrows to play the game. In Pay mode, every move commits only after a successful payment.
           </div>
         ) : null}
       </div>
@@ -981,7 +980,6 @@ try {
         </div>
       </Sheet>
 
-
       <Sheet
         open={gameOverOpen}
         title="Game over"
@@ -1001,46 +999,20 @@ try {
             onClick={saveScoreFromGameOver} disabled={busy}
             className="w-full"
           >
-            Save score onchain
+            {busy ? "Saving..." : "Save score onchain"}
           </Button>
-              <Button
-                variant="outline"
-                onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
-                className="w-full"
-              >
-                Share your score
-              </Button>
+          <Button
+            variant="outline"
+            onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
+            className="w-full"
+          >
+            Share your score
+          </Button>
 
           <Button variant="outline" onClick={reset} className="w-full">
             New game
           </Button>
         </div>
-      </Sheet>
-
-      <Sheet open={saveOpen} title="Save score onchain" onClose={() => setSaveOpen(false)}>
-        <div className="text-sm text-[var(--muted)]">
-          Best score is tracked onchain only. If you don&apos;t save, it won&apos;t count.
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
-          <div className="text-xs font-semibold opacity-70">CURRENT SCORE</div>
-          <div className="text-3xl font-extrabold">{score}</div>
-        </div>
-
-        <div className="mt-4 flex gap-2">
-          <Button onClick={saveScoreAnytime} disabled={busy} className="w-full">
-            {busy ? "Working…" : "Save now"}
-          </Button>
-          <Button variant="outline" onClick={() => setSaveOpen(false)} className="w-full">
-            Not now
-          </Button>
-        </div>
-
-        {!contract ? (
-          <div className="mt-3 text-xs text-red-600">
-            Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS
-          </div>
-        ) : null}
       </Sheet>
 
     </div>
