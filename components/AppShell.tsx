@@ -157,6 +157,32 @@ export default function AppShell() {
     return idx >= 0 ? idx + 1 : null;
   }, [address, leaderboard]);
 
+  // Prevent scroll bounce (pull-to-refresh) globally on mobile webviews
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.body.style.overscrollBehavior = "none";
+    }
+    return () => {
+      if (typeof document !== "undefined") {
+        document.body.style.overscrollBehavior = "";
+      }
+    };
+  }, []);
+
+  // Prevent game board swipe from triggering screen scrolling/flickering
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+
+    const preventScroll = (e: TouchEvent) => {
+      e.preventDefault();
+    };
+
+    // 'passive: false' allows us to completely stop the browser's native scrolling behavior
+    el.addEventListener("touchmove", preventScroll, { passive: false });
+    return () => el.removeEventListener("touchmove", preventScroll);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -675,10 +701,10 @@ export default function AppShell() {
   };
 
   return (
-    <div className="min-h-screen w-full px-4 py-5 flex flex-col">
+    <div className="min-h-screen w-full px-4 py-5 overflow-hidden">
       <Toast toast={toast} />
 
-      <div className="mx-auto w-full max-w-md flex-1">
+      <div className="mx-auto w-full max-w-md">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
@@ -985,36 +1011,36 @@ export default function AppShell() {
         title="Game over"
         onClose={() => setGameOverOpen(false)}
       >
-        <div className="text-sm text-[var(--muted)]">
-          Your best score is only counted when you save it onchain.
-        </div>
+        <div className="pb-8">
+          <div className="text-sm text-[var(--muted)]">
+            Your best score is only counted when you save it onchain.
+          </div>
 
-        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
-          <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
-          <div className="text-3xl font-extrabold">{score}</div>
-        </div>
+          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
+            <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
+            <div className="text-3xl font-extrabold">{score}</div>
+          </div>
 
-        <div className="mt-4 flex gap-2">
-          <Button
-            onClick={saveScoreFromGameOver} disabled={busy}
-            className="w-full"
-          >
-            {busy ? "Saving..." : "Save score onchain"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
-            className="w-full"
-          >
-            Share your score
-          </Button>
+          <div className="mt-4 flex gap-2">
+            <Button
+              onClick={saveScoreFromGameOver} disabled={busy}
+              className="w-full"
+            >
+              {busy ? "Saving..." : "Save score onchain"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
+              className="w-full"
+            >
+              Share your score
+            </Button>
 
-          <Button variant="outline" onClick={reset} className="w-full">
-            New game
-          </Button>
+            <Button variant="outline" onClick={reset} className="w-full">
+              New game
+            </Button>
+          </div>
         </div>
-        {/*  */}
-        <div className="h-8 md:h-2" />
       </Sheet>
 
     </div>
