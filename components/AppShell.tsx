@@ -675,10 +675,10 @@ export default function AppShell() {
   };
 
   return (
-    <div className="min-h-screen w-full px-4 py-5">
+    <div className="min-h-screen w-full px-4 py-5 flex flex-col">
       <Toast toast={toast} />
 
-      <div className="mx-auto w-full max-w-md">
+      <div className="mx-auto w-full max-w-md flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
@@ -985,37 +985,36 @@ export default function AppShell() {
         title="Game over"
         onClose={() => setGameOverOpen(false)}
       >
-        {/* game over tab will be lifted few space from bottom*/}
-        <div className="pb-10">
-          <div className="text-sm text-[var(--muted)]">
-            Your best score is only counted when you save it onchain.
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
-            <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
-            <div className="text-3xl font-extrabold">{score}</div>
-          </div>
-
-          <div className="mt-4 flex gap-2">
-            <Button
-              onClick={saveScoreFromGameOver} disabled={busy}
-              className="w-full"
-            >
-              {busy ? "Saving..." : "Save score onchain"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
-              className="w-full"
-            >
-              Share your score
-            </Button>
-
-            <Button variant="outline" onClick={reset} className="w-full">
-              New game
-            </Button>
-          </div>
+        <div className="text-sm text-[var(--muted)]">
+          Your best score is only counted when you save it onchain.
         </div>
+
+        <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
+          <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
+          <div className="text-3xl font-extrabold">{score}</div>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Button
+            onClick={saveScoreFromGameOver} disabled={busy}
+            className="w-full"
+          >
+            {busy ? "Saving..." : "Save score onchain"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
+            className="w-full"
+          >
+            Share your score
+          </Button>
+
+          <Button variant="outline" onClick={reset} className="w-full">
+            New game
+          </Button>
+        </div>
+        {/*  */}
+        <div className="h-8 md:h-2" />
       </Sheet>
 
     </div>
