@@ -50,14 +50,12 @@ const FRAME_EMBED = {
 const MINIAPP_EMBED_CONTENT = JSON.stringify(MINIAPP_EMBED);
 const FRAME_EMBED_CONTENT = JSON.stringify(FRAME_EMBED);
 
-// Runs BEFORE hydration — kills theme flash in every in-app browser
+// Pre-hydration: apply saved theme before React mounts (kills theme-flash)
 const preHydrationScript = `
 (function(){
   try {
     var t = localStorage.getItem('theme') || 'classic';
-    var d = document.documentElement;
-    d.setAttribute('data-theme', t);
-    d.style.setProperty('--app-height', window.innerHeight + 'px');
+    document.documentElement.setAttribute('data-theme', t);
   } catch(e) {}
 })();
 `;
@@ -73,10 +71,6 @@ export default function RootLayout({
         <meta name="base:app_id" content={BASE_APP_ID} />
         <meta name="fc:miniapp" content={MINIAPP_EMBED_CONTENT} />
         <meta name="fc:frame" content={FRAME_EMBED_CONTENT} />
-        {/* Prevents auto-zoom + double-tap zoom on iOS in-app browsers */}
-        <meta name="format-detection" content="telephone=no" />
-        <meta name="color-scheme" content="light dark" />
-        {/* Runs before React hydrates — no theme flash, no height jump */}
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
       <body>{children}</body>
