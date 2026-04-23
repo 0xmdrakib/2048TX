@@ -1,10 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "2048 TX",
   description: "2048 with optional pay-per-move and onchain score saves.",
   icons: [{ rel: "icon", url: "/icon.png" }],
+};
+
+// 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 // ---------------------------------------------------------------------------
@@ -64,11 +73,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Prevent pinch/double-tap zoom inside in-app webviews */}
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
-        />
+        {/**/}
 
         {/* Base Build domain verification */}
         <meta name="base:app_id" content={BASE_APP_ID} />
@@ -81,11 +86,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
-};
