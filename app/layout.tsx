@@ -14,9 +14,6 @@ export const viewport: Viewport = {
   themeColor: "#faf8f0",
 };
 
-// ---------------------------------------------------------------------------
-// Mini App head tags (Base + Farcaster)
-// ---------------------------------------------------------------------------
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://2048tx.vercel.app").replace(/\/$/, "");
 const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad876c90810df";
 
@@ -53,15 +50,15 @@ const FRAME_EMBED = {
 const MINIAPP_EMBED_CONTENT = JSON.stringify(MINIAPP_EMBED);
 const FRAME_EMBED_CONTENT = JSON.stringify(FRAME_EMBED);
 
-// 
-const themeInitScript = `
-(function() {
+// Runs BEFORE hydration — kills theme flash in every in-app browser
+const preHydrationScript = `
+(function(){
   try {
     var t = localStorage.getItem('theme') || 'classic';
-    document.documentElement.setAttribute('data-theme', t);
-  } catch(e) {
-    document.documentElement.setAttribute('data-theme', 'classic');
-  }
+    var d = document.documentElement;
+    d.setAttribute('data-theme', t);
+    d.style.setProperty('--app-height', window.innerHeight + 'px');
+  } catch(e) {}
 })();
 `;
 
@@ -73,13 +70,14 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="classic" suppressHydrationWarning>
       <head>
-        {/* Base Build domain verification */}
         <meta name="base:app_id" content={BASE_APP_ID} />
-        {/* Mini App embeds for discovery/sharing */}
         <meta name="fc:miniapp" content={MINIAPP_EMBED_CONTENT} />
         <meta name="fc:frame" content={FRAME_EMBED_CONTENT} />
-        {/* Anti-flash theme init (runs before React hydration) */}
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        {/* Prevents auto-zoom + double-tap zoom on iOS in-app browsers */}
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="color-scheme" content="light dark" />
+        {/* Runs before React hydrates — no theme flash, no height jump */}
+        <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
       <body>{children}</body>
     </html>
