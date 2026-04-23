@@ -1,5 +1,4 @@
 "use client";
-
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "./Button";
@@ -20,21 +19,25 @@ export default function Sheet({
       {open ? (
         <>
           <motion.div
-            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/50"
+            style={{ willChange: "opacity" }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
             onClick={onClose}
           />
           <motion.div
             className="fixed inset-x-0 bottom-0 z-50 safe-bottom"
+            style={{
+              willChange: "transform, opacity",
+              transform: "translateZ(0)",
+            }}
             initial={{ y: 40, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 40, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 28 }}
+            transition={{ type: "spring", stiffness: 320, damping: 30 }}
           >
-            {/* 
-            */}
             <div className="mx-auto w-full max-w-md rounded-t-[28px] border border-[var(--cardBorder)] bg-[var(--bg)] shadow-soft -mb-[50px] pb-[calc(env(safe-area-inset-bottom)+50px)]">
               <div className="flex items-center justify-between px-5 pt-5">
                 <div className="text-base font-semibold">{title}</div>
