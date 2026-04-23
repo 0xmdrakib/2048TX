@@ -157,17 +157,6 @@ export default function AppShell() {
     return idx >= 0 ? idx + 1 : null;
   }, [address, leaderboard]);
 
-  // Prevent scroll bounce (pull-to-refresh) globally on mobile webviews
-  useEffect(() => {
-    if (typeof document !== "undefined") {
-      document.body.style.overscrollBehavior = "none";
-    }
-    return () => {
-      if (typeof document !== "undefined") {
-        document.body.style.overscrollBehavior = "";
-      }
-    };
-  }, []);
 
   // Prevent game board swipe from triggering screen scrolling/flickering
   useEffect(() => {
@@ -183,26 +172,19 @@ export default function AppShell() {
     return () => el.removeEventListener("touchmove", preventScroll);
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { sdk } = await import("@farcaster/miniapp-sdk");
-        await sdk.actions.ready();
-      } catch {
-        // Not in a Farcaster mini app; ok.
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     const saved = typeof window !== "undefined" ? (window.localStorage.getItem("theme") as ThemeId | null) : null;
     if (saved) setTheme(saved);
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     if (typeof window === "undefined") return;
+    const current = document.documentElement.getAttribute("data-theme");
+    if (current !== theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+    }
     window.localStorage.setItem("theme", theme);
-    document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
   const reset = useCallback(() => {
