@@ -20,10 +20,6 @@ export default function Sheet({
         <>
           <motion.div
             className="fixed inset-0 z-40 bg-black/50"
-            style={{
-              willChange: "opacity",
-              transform: "translate3d(0,0,0)",
-            }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -32,21 +28,12 @@ export default function Sheet({
           />
           <motion.div
             className="fixed inset-x-0 bottom-0 z-50 safe-bottom"
-            style={{
-              willChange: "transform, opacity",
-              transform: "translate3d(0,0,0)",
-              WebkitBackfaceVisibility: "hidden",
-              backfaceVisibility: "hidden",
-            }}
-            initial={{ y: 20, opacity: 0 }}
+            initial={{ y: 30, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 20, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 380, damping: 34, mass: 0.7 }}
+            exit={{ y: 30, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 380, damping: 34, mass: 0.6 }}
           >
-            <div
-              className="mx-auto w-full max-w-md rounded-t-[28px] border border-[var(--cardBorder)] bg-[var(--bg)] shadow-soft -mb-[50px] pb-[calc(env(safe-area-inset-bottom)+50px)]"
-              style={{ contain: "layout paint" }}
-            >
+            <div className="mx-auto w-full max-w-md rounded-t-[28px] border border-[var(--cardBorder)] bg-[var(--bg)] shadow-soft -mb-[50px] pb-[calc(env(safe-area-inset-bottom)+50px)]">
               <div className="flex items-center justify-between px-5 pt-5">
                 <div className="text-base font-semibold">{title}</div>
                 <Button variant="ghost" size="sm" aria-label="Close" onClick={onClose}>
