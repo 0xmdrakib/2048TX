@@ -26,17 +26,12 @@ export default function Board({
   return (
     <div
       className={[
-        "relative w-full max-w-md aspect-square rounded-[28px] p-3 isolate touch-none",
+        "relative w-full max-w-md aspect-square rounded-[28px] p-3 isolate touch-none gpu-layer",
         "bg-[var(--board)] border border-[var(--cardBorder)] shadow-soft",
         isLocked ? "opacity-90" : "",
       ].join(" ")}
       style={{
-        // GPU layer — prevents repaint flicker in in-app browsers
-        transform: "translateZ(0)",
-        willChange: "transform",
-        contain: "layout paint",
-        WebkitBackfaceVisibility: "hidden",
-        backfaceVisibility: "hidden",
+        contain: "layout paint style",
       }}
     >
       <LayoutGroup id={`board-${size}`}>
@@ -44,8 +39,7 @@ export default function Board({
           {cells.map(({ posKey, tile }) => (
             <div
               key={posKey}
-              className="relative rounded-2xl bg-[var(--cell)]"
-              style={{ transform: "translateZ(0)" }}
+              className="relative rounded-2xl bg-[var(--cell)] gpu-layer"
             >
               <AnimatePresence mode="popLayout" initial={false}>
                 {tile ? (
@@ -61,6 +55,8 @@ export default function Board({
                     style={{
                       zIndex: tile.value,
                       willChange: "transform",
+                      WebkitBackfaceVisibility: "hidden",
+                      backfaceVisibility: "hidden",
                     }}
                     className="absolute inset-0"
                   >
