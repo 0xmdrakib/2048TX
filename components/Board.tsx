@@ -1,5 +1,5 @@
 "use client";
-import { AnimatePresence, motion, LayoutGroup } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import type { Board as BoardT } from "@/lib/engine2048";
 import { boardToCells } from "@/lib/engine2048";
 import type { ThemeId } from "@/lib/themes";
@@ -26,48 +26,30 @@ export default function Board({
   return (
     <div
       className={[
-        "relative w-full max-w-md aspect-square rounded-[28px] p-3 isolate touch-none gpu-layer",
+        "relative w-full max-w-md aspect-square rounded-[28px] p-3 isolate touch-none",
         "bg-[var(--board)] border border-[var(--cardBorder)] shadow-soft",
         isLocked ? "opacity-90" : "",
       ].join(" ")}
-      style={{
-        contain: "layout paint style",
-      }}
     >
-      <LayoutGroup id={`board-${size}`}>
-        <div className={`grid h-full w-full gap-3 ${colsClass}`}>
-          {cells.map(({ posKey, tile }) => (
-            <div
-              key={posKey}
-              className="relative rounded-2xl bg-[var(--cell)] gpu-layer"
-            >
-              <AnimatePresence mode="popLayout" initial={false}>
-                {tile ? (
-                  <motion.div
-                    key={tile.id}
-                    layoutId={tile.id}
-                    transition={{
-                      type: "spring",
-                      stiffness: 380,
-                      damping: 32,
-                      mass: 0.6,
-                    }}
-                    style={{
-                      zIndex: tile.value,
-                      willChange: "transform",
-                      WebkitBackfaceVisibility: "hidden",
-                      backfaceVisibility: "hidden",
-                    }}
-                    className="absolute inset-0"
-                  >
-                    <Tile value={tile.value} theme={theme} />
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </div>
-          ))}
-        </div>
-      </LayoutGroup>
+      <div className={`grid h-full w-full gap-3 ${colsClass}`}>
+        {cells.map(({ posKey, tile }) => (
+          <div key={posKey} className="relative rounded-2xl bg-[var(--cell)]">
+            <AnimatePresence initial={false}>
+              {tile ? (
+                <motion.div
+                  key={tile.id}
+                  layoutId={tile.id}
+                  transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.5 }}
+                  style={{ zIndex: tile.value }}
+                  className="absolute inset-0"
+                >
+                  <Tile value={tile.value} theme={theme} />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
