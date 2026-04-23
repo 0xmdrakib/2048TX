@@ -153,11 +153,9 @@ export default function AppShell() {
   useEffect(() => {
     const el = boardRef.current;
     if (!el) return;
-
     const preventScroll = (e: TouchEvent) => {
       e.preventDefault();
     };
-
     el.addEventListener("touchmove", preventScroll, { passive: false });
     return () => el.removeEventListener("touchmove", preventScroll);
   }, []);
@@ -168,7 +166,7 @@ export default function AppShell() {
     if (saved) setTheme(saved);
   }, []);
 
-  // Apply theme when it changes — but skip if already set (avoids redundant repaint)
+  // Apply theme (skip if unchanged to avoid redundant repaint)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const current = document.documentElement.getAttribute("data-theme");
@@ -658,161 +656,124 @@ export default function AppShell() {
   };
 
   return (
-    <div
-      className="h-full w-full px-4 py-5 overflow-hidden overscroll-none"
-      style={{
-        height: "var(--app-height, 100vh)",
-        transform: "translate3d(0,0,0)",
-        WebkitBackfaceVisibility: "hidden",
-        backfaceVisibility: "hidden",
-      }}
-    >
+    <div className="app-root">
       <Toast toast={toast} />
 
-      <div
-        className="mx-auto w-full max-w-md h-full overflow-y-auto overscroll-none"
-        style={{
-          WebkitOverflowScrolling: "touch",
-          contain: "layout paint",
-        }}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 min-w-0">
-              <Chip>
-                <span className="text-[11px] opacity-70">Mode</span>
-                <span className="font-semibold">{modeLabel}</span>
-              </Chip>
-              {mode === "pay" ? (
-                <Chip className="w-fit pl-4 pr-5 py-1.5">
-                  <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
-                  <span className="font-semibold text-[12px] whitespace-nowrap relative top-[1px]">
-                    {movesPaid} moves • {formatMicroUsdc(spentMicro)}${"\u00A0"}
-                  </span>
+      <div className="app-scroll px-4 py-5">
+        <div className="mx-auto w-full max-w-md">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 min-w-0">
+                <Chip>
+                  <span className="text-[11px] opacity-70">Mode</span>
+                  <span className="font-semibold">{modeLabel}</span>
                 </Chip>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
-              <Trophy className="h-4 w-4" />
-            </Button>
-
-            <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
-              <Palette className="h-4 w-4" />
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={cycleGridSize}
-              aria-label="Grid Size"
-            >
-              <Grid className="h-4 w-4" />
-              <span className="ml-1 text-xs font-semibold">{gridSize}x{gridSize}</span>
-            </Button>
-          </div>
-        </div>
-
-        <div
-          className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3 no-flicker"
-          style={{ contain: "layout paint" }}
-        >
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 no-flicker">
-            <div className="text-[11px] font-semibold opacity-70">SCORE</div>
-            <div className="text-xl font-extrabold tabular-nums tracking-tight">{score}</div>
-          </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 no-flicker">
-            <div className="text-[11px] font-semibold opacity-70">BEST (ONCHAIN)</div>
-            <div className="text-xl font-extrabold tabular-nums tracking-tight">{onchainBest ?? "—"}</div>
-          </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 no-flicker">
-            <div className="text-[11px] font-semibold opacity-70">MODE</div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <Button
-                size="sm"
-                variant={mode === "classic" ? "solid" : "outline"}
-                onClick={() => setMode("classic")}
-                className="w-full min-w-0"
-              >
-                Classic
-              </Button>
-              <Button
-                size="sm"
-                variant={mode === "pay" ? "solid" : "outline"}
-                onClick={() => setMode("pay")}
-                className="w-full min-w-0"
-              >
-                Pay
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 flex items-center justify-between">
-          <div className="flex items-center">
-            {address ? (
-              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-1.5 text-sm font-medium shadow-sm">
-                <div className="h-2 w-2 rounded-full bg-green-500" />
-                <span>{shorten(address)}</span>
-                <button
-                  type="button"
-                  onClick={disconnect}
-                  className="mr-[-4px] ml-1 rounded-full p-1 opacity-70 hover:bg-[var(--muted)] hover:opacity-100 transition-colors"
-                  aria-label="Disconnect"
-                >
-                  <Power className="h-3.5 w-3.5" />
-                </button>
+                {mode === "pay" ? (
+                  <Chip className="w-fit pl-4 pr-5 py-1.5">
+                    <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
+                    <span className="font-semibold text-[12px] whitespace-nowrap relative top-[1px]">
+                      {movesPaid} moves • {formatMicroUsdc(spentMicro)}${"\u00A0"}
+                    </span>
+                  </Chip>
+                ) : null}
               </div>
-            ) : (
-              <Button variant="outline" size="sm" onClick={connect}>
-                Connect
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
+                <Trophy className="h-4 w-4" />
               </Button>
-            )}
+              <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
+                <Palette className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={cycleGridSize} aria-label="Grid Size">
+                <Grid className="h-4 w-4" />
+                <span className="ml-1 text-xs font-semibold">{gridSize}x{gridSize}</span>
+              </Button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={reset} aria-label="New Game">
-              <RotateCcw className="h-4 w-4" />
+          <div className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3">
+            <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3">
+              <div className="text-[11px] font-semibold opacity-70">SCORE</div>
+              <div className="text-xl font-extrabold tabular-nums tracking-tight">{score}</div>
+            </div>
+            <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3">
+              <div className="text-[11px] font-semibold opacity-70">BEST (ONCHAIN)</div>
+              <div className="text-xl font-extrabold tabular-nums tracking-tight">{onchainBest ?? "—"}</div>
+            </div>
+            <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3">
+              <div className="text-[11px] font-semibold opacity-70">MODE</div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Button size="sm" variant={mode === "classic" ? "solid" : "outline"} onClick={() => setMode("classic")} className="w-full min-w-0">
+                  Classic
+                </Button>
+                <Button size="sm" variant={mode === "pay" ? "solid" : "outline"} onClick={() => setMode("pay")} className="w-full min-w-0">
+                  Pay
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <div className="flex items-center">
+              {address ? (
+                <div className="inline-flex items-center gap-2 rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-1.5 text-sm font-medium shadow-sm">
+                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                  <span>{shorten(address)}</span>
+                  <button
+                    type="button"
+                    onClick={disconnect}
+                    className="mr-[-4px] ml-1 rounded-full p-1 opacity-70 hover:bg-[var(--muted)] hover:opacity-100 transition-colors"
+                    aria-label="Disconnect"
+                  >
+                    <Power className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={connect}>
+                  Connect
+                </Button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={reset} aria-label="New Game">
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void saveScoreAnytime()} disabled={busy}>
+                <Save className="mr-2 h-4 w-4" />
+                {busy ? "Saving…" : "Save score"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4 touch-none" ref={boardRef}>
+            <Board board={board} theme={theme} isLocked={busy} />
+          </div>
+
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            <Button variant="outline" onClick={() => onDirection("up")} aria-label="Up">
+              <ChevronUp className="h-4 w-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void saveScoreAnytime()}
-              disabled={busy}
-            >
-              <Save className="mr-2 h-4 w-4" />
-              {busy ? "Saving…" : "Save score"}
+            <Button variant="outline" onClick={() => onDirection("left")} aria-label="Left">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={() => onDirection("down")} aria-label="Down">
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={() => onDirection("right")} aria-label="Right">
+              <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
-        </div>
 
-        <div className="mt-4 touch-none overscroll-none gpu-layer" ref={boardRef}>
-          <Board board={board} theme={theme} isLocked={busy} />
+          {mode === "classic" ? (
+            <div className="mt-6 text-center text-xs text-[var(--muted)]">
+              Swipe or use arrows to play the game. In Pay mode, every move commits only after a successful payment.
+            </div>
+          ) : null}
         </div>
-
-        <div className="mt-4 grid grid-cols-4 gap-2">
-          <Button variant="outline" onClick={() => onDirection("up")} aria-label="Up">
-            <ChevronUp className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" onClick={() => onDirection("left")} aria-label="Left">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" onClick={() => onDirection("down")} aria-label="Down">
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" onClick={() => onDirection("right")} aria-label="Right">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {mode === "classic" ? (
-          <div className="mt-6 text-center text-xs text-[var(--muted)]">
-            Swipe or use arrows to play the game. In Pay mode, every move commits only after a successful payment.
-          </div>
-        ) : null}
       </div>
 
       <Sheet
@@ -944,10 +905,7 @@ export default function AppShell() {
           </div>
         ) : null}
 
-        <div
-          className="mt-3 max-h-[60vh] space-y-2 overflow-auto"
-          style={{ WebkitOverflowScrolling: "touch", contain: "layout paint" }}
-        >
+        <div className="mt-3 max-h-[60vh] space-y-2 overflow-auto">
           {(leaderboard ?? []).map((e, i) => {
             const isMe = !!address && e.address.toLowerCase() === address.toLowerCase();
             return (
@@ -993,33 +951,24 @@ export default function AppShell() {
             Your best score is only counted when you save it onchain.
           </div>
 
-          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 no-flicker">
+          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4">
             <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
             <div className="text-3xl font-extrabold">{score}</div>
           </div>
 
           <div className="mt-4 flex gap-2">
-            <Button
-              onClick={saveScoreFromGameOver} disabled={busy}
-              className="w-full"
-            >
+            <Button onClick={saveScoreFromGameOver} disabled={busy} className="w-full">
               {busy ? "Saving..." : "Save score onchain"}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => shareCast(`I scored ${score} in 2048 TX`)}
-              className="w-full"
-            >
+            <Button variant="outline" onClick={() => shareCast(`I scored ${score} in 2048 TX`)} className="w-full">
               Share your score
             </Button>
-
             <Button variant="outline" onClick={reset} className="w-full">
               New game
             </Button>
           </div>
         </div>
       </Sheet>
-
     </div>
   );
 }
