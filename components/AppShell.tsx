@@ -703,7 +703,7 @@ export default function AppShell() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full px-4 py-5 overflow-hidden overscroll-none">
+    <div className="h-full w-full px-4 py-5 overflow-y-auto overscroll-none">
       <Toast toast={toast} />
 
       <div className="mx-auto w-full max-w-md">
