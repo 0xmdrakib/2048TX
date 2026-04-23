@@ -98,7 +98,6 @@ function playSound(type: "move" | "merge" | "success" | "gameover") {
     // Silently fail if audio context is blocked
   }
 }
-// -----------------------------------------
 
 function isUserRejected(e: any) {
   const msg = String(e?.message ?? "").toLowerCase();
@@ -108,12 +107,10 @@ function isUserRejected(e: any) {
 export default function AppShell() {
   const [theme, setTheme] = useState<ThemeId>("classic");
   const [mode, setMode] = useState<Mode>("classic");
-  const [gridSize, setGridSize] = useState<number>(4);
-
+  const [gridSize, setGridSize] = useState(4);
   const [{ board, score }, setGame] = useState(() => newGame(4));
   const [gameOver, setGameOver] = useState(false);
   const [gameOverOpen, setGameOverOpen] = useState(false);
-
   const [themeOpen, setThemeOpen] = useState(false);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [leaderboard, setLeaderboard] = useState<Array<{ address: string; bestScore: number }> | null>(null);
@@ -125,23 +122,18 @@ export default function AppShell() {
     weekEndsAt: string;
     secondsLeft: number;
   } | null>(null);
-  const [weekTimeLeft, setWeekTimeLeft] = useState<string>("");
-
+  const [weekTimeLeft, setWeekTimeLeft] = useState("");
   const [pending, setPending] = useState<PendingMove | null>(null);
-
   const [movesPaid, setMovesPaid] = useState(0);
   const [spentMicro, setSpentMicro] = useState(0);
-
   const [providerReady, setProviderReady] = useState(false);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [onchainBest, setOnchainBest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [walletChoices, setWalletChoices] = useState<Array<{ id: string; name: string; icon?: string }> | null>(null);
   const [walletChoicesLoading, setWalletChoicesLoading] = useState(false);
-
-  const [toast, setToast] = useState<ToastState>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
   const payLockRef = useRef(false);
@@ -157,7 +149,6 @@ export default function AppShell() {
     return idx >= 0 ? idx + 1 : null;
   }, [address, leaderboard]);
 
-
   // Prevent game board swipe from triggering screen scrolling/flickering
   useEffect(() => {
     const el = boardRef.current;
@@ -167,18 +158,18 @@ export default function AppShell() {
       e.preventDefault();
     };
 
-    // 'passive: false' allows us to completely stop the browser's native scrolling behavior
     el.addEventListener("touchmove", preventScroll, { passive: false });
     return () => el.removeEventListener("touchmove", preventScroll);
   }, []);
 
-
+  // Load saved theme once on mount
   useEffect(() => {
     const saved = typeof window !== "undefined" ? (window.localStorage.getItem("theme") as ThemeId | null) : null;
     if (saved) setTheme(saved);
   }, []);
 
-    useEffect(() => {
+  // Apply theme when it changes — but skip if already set (avoids redundant repaint)
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const current = document.documentElement.getAttribute("data-theme");
     if (current !== theme) {
@@ -254,12 +245,10 @@ export default function AppShell() {
   useEffect(() => {
     if (!leaderboardOpen) return;
     if (!leaderboardMeta?.weekEndsAt) return;
-
     const tick = () => {
       const end = new Date(leaderboardMeta.weekEndsAt).getTime();
       const diff = Math.max(0, end - Date.now());
       const totalSeconds = Math.floor(diff / 1000);
-
       if (totalSeconds === 0 && rolloverTriggeredForWeekRef.current !== leaderboardMeta.weekIndex) {
         rolloverTriggeredForWeekRef.current = leaderboardMeta.weekIndex;
         void (async () => {
@@ -272,17 +261,14 @@ export default function AppShell() {
           }
         })();
       }
-
       const d = Math.floor(totalSeconds / 86400);
       const h = Math.floor((totalSeconds % 86400) / 3600);
       const m = Math.floor((totalSeconds % 3600) / 60);
       const s = totalSeconds % 60;
-
       const pad = (n: number) => String(n).padStart(2, "0");
       const label = d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`;
       setWeekTimeLeft(label);
     };
-
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
@@ -293,18 +279,15 @@ export default function AppShell() {
     const p = await getEvmProvider();
     if (!p) return;
     setProviderReady(true);
-
     const provider = p as NonNullable<typeof p>;
     const acct = await getAccount(provider);
     if (!acct) return;
     setAddress(acct);
-
     try {
       await ensureChain(provider, chainId);
     } catch {
       // ignore
     }
-
     try {
       const best = await getBestScore({ provider, contract, address: acct });
       setOnchainBest(best);
@@ -325,7 +308,6 @@ export default function AppShell() {
       return;
     }
     setProviderReady(true);
-    
     const provider = p as NonNullable<typeof p>;
     try {
       await ensureChain(provider, chainId);
@@ -371,7 +353,6 @@ export default function AppShell() {
         setWalletChoicesLoading(false);
       }
     }
-
     await doConnect();
   }, [doConnect]);
 
@@ -392,10 +373,8 @@ export default function AppShell() {
       if (gameOver || busy) return;
       const r = move(board, dir);
       if (!r.moved) return;
-
       if (r.scoreGain > 0) playSound("merge");
       else playSound("move");
-
       const afterSpawn = spawnRandomTile(r.board);
       setGame({ board: afterSpawn, score: score + r.scoreGain });
       checkGameOver(afterSpawn);
@@ -411,7 +390,6 @@ export default function AppShell() {
         setTimeout(() => setToast(null), 2400);
         return;
       }
-
       if (!/^0x[a-fA-F0-9]{40}$/.test(payRecipient)) {
         setToast({ message: "Invalid NEXT_PUBLIC_PAY_RECIPIENT address" });
         setTimeout(() => setToast(null), 2400);
@@ -436,10 +414,9 @@ export default function AppShell() {
           return;
         }
         setProviderReady(true);
-
         const provider = p as NonNullable<typeof p>;
-        await ensureChain(provider, chainId);
 
+        await ensureChain(provider, chainId);
         const acct = (address ?? (await getAccount(provider)) ?? (await requestAccount(provider))) as `0x${string}`;
         setAddress(acct);
 
@@ -457,16 +434,13 @@ export default function AppShell() {
         setGame((g) => ({ board: afterSpawn, score: g.score + r.scoreGain }));
         setMovesPaid((m) => m + 1);
         setSpentMicro((s) => s + micro);
-
         if (r.scoreGain > 0) playSound("merge");
         else playSound("move");
 
         setToast({ message: "Move confirmed ✅" });
         setTimeout(() => setToast(null), 1200);
-
         checkGameOver(afterSpawn);
         return;
-
       } catch (e: any) {
         setToast({ message: isUserRejected(e) ? "User rejected tx" : e?.message ?? "Payment cancelled/failed" });
         setTimeout(() => setToast(null), 2500);
@@ -476,7 +450,7 @@ export default function AppShell() {
         payLockRef.current = false;
       }
     },
-    [board, gameOver, busy, payRecipient, checkGameOver]
+    [board, gameOver, busy, payRecipient, checkGameOver, address, chainId]
   );
 
   const onDirection = useCallback(
@@ -523,13 +497,12 @@ export default function AppShell() {
         return false;
       }
       setProviderReady(true);
-
       const provider = p as NonNullable<typeof p>;
+
       const chainIdHex = (await provider.request({
         method: "eth_chainId",
         params: [],
       })) as `0x${string}`;
-
       const currentChainId = parseInt(chainIdHex, 16);
       if (Number.isFinite(currentChainId) && currentChainId !== chainId) {
         throw new Error("Wrong network. Please switch to Base Mainnet, then try again.");
@@ -685,10 +658,24 @@ export default function AppShell() {
   };
 
   return (
-    <div className="h-full w-full px-4 py-5 overflow-y-auto overscroll-none">
+    <div
+      className="h-full w-full px-4 py-5 overflow-hidden overscroll-none"
+      style={{
+        height: "var(--app-height, 100vh)",
+        transform: "translate3d(0,0,0)",
+        WebkitBackfaceVisibility: "hidden",
+        backfaceVisibility: "hidden",
+      }}
+    >
       <Toast toast={toast} />
 
-      <div className="mx-auto w-full max-w-md">
+      <div
+        className="mx-auto w-full max-w-md h-full overflow-y-auto overscroll-none"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          contain: "layout paint",
+        }}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
@@ -729,16 +716,19 @@ export default function AppShell() {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3">
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
+        <div
+          className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3 no-flicker"
+          style={{ contain: "layout paint" }}
+        >
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 no-flicker">
             <div className="text-[11px] font-semibold opacity-70">SCORE</div>
             <div className="text-xl font-extrabold tabular-nums tracking-tight">{score}</div>
           </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 no-flicker">
             <div className="text-[11px] font-semibold opacity-70">BEST (ONCHAIN)</div>
             <div className="text-xl font-extrabold tabular-nums tracking-tight">{onchainBest ?? "—"}</div>
           </div>
-          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 backdrop-blur">
+          <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 no-flicker">
             <div className="text-[11px] font-semibold opacity-70">MODE</div>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <Button
@@ -799,7 +789,7 @@ export default function AppShell() {
           </div>
         </div>
 
-        <div className="mt-4 touch-none overscroll-none" ref={boardRef}>
+        <div className="mt-4 touch-none overscroll-none gpu-layer" ref={boardRef}>
           <Board board={board} theme={theme} isLocked={busy} />
         </div>
 
@@ -954,7 +944,10 @@ export default function AppShell() {
           </div>
         ) : null}
 
-        <div className="mt-3 max-h-[60vh] space-y-2 overflow-auto">
+        <div
+          className="mt-3 max-h-[60vh] space-y-2 overflow-auto"
+          style={{ WebkitOverflowScrolling: "touch", contain: "layout paint" }}
+        >
           {(leaderboard ?? []).map((e, i) => {
             const isMe = !!address && e.address.toLowerCase() === address.toLowerCase();
             return (
@@ -1000,7 +993,7 @@ export default function AppShell() {
             Your best score is only counted when you save it onchain.
           </div>
 
-          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 backdrop-blur">
+          <div className="mt-4 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-4 no-flicker">
             <div className="text-xs font-semibold opacity-70">FINAL SCORE</div>
             <div className="text-3xl font-extrabold">{score}</div>
           </div>
