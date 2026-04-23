@@ -14,17 +14,14 @@ export default function Tile({
 
   return (
     <motion.div
-      className={[
-        "h-full w-full rounded-2xl flex items-center justify-center",
-        "select-none font-extrabold tracking-tight",
-      ].join(" ")}
+      className="h-full w-full rounded-2xl flex items-center justify-center select-none font-extrabold tracking-tight"
       style={{
         background: style.bg,
         color: style.fg,
         border: style.border ? `1px solid ${style.border}` : undefined,
         boxShadow: style.glow,
         willChange: "transform, opacity",
-        transform: "translateZ(0)",
+        transform: "translate3d(0,0,0)",
         WebkitBackfaceVisibility: "hidden",
         backfaceVisibility: "hidden",
       }}
