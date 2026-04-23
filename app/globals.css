@@ -11,8 +11,6 @@
   --board: #b9a58d;
   --cell: rgba(255, 255, 255, 0.30);
   --chip: rgba(0, 0, 0, 0.06);
-
-  /* Stable app-height — JS sets this from visualViewport to avoid URL-bar jumps */
   --app-height: 100vh;
 }
 
@@ -49,17 +47,24 @@
   --chip: rgba(255, 255, 255, 0.10);
 }
 
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
 html {
   height: var(--app-height, 100vh);
-  min-height: 100dvh;
   width: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+  /* touch-action: manipulation allows normal taps + scrolls but kills double-tap zoom */
   touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
-  min-height: var(--app-height, 100vh);
+  height: var(--app-height, 100vh);
   width: 100%;
   margin: 0;
   padding: 0;
@@ -71,31 +76,39 @@ body {
   -moz-osx-font-smoothing: grayscale;
   -webkit-user-select: none;
   user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  /* GPU-accelerated layer — prevents sub-pixel jitter on weak WebViews */
-  transform: translateZ(0);
+  /* KEY: GPU layer for the whole app — prevents sub-pixel paint jitter */
+  transform: translate3d(0, 0, 0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+  -webkit-transform-style: preserve-3d;
+  transform-style: preserve-3d;
 }
 
-* {
-  box-sizing: border-box;
+/* Utility: apply this class to elements that should NOT move during swipes */
+.no-flicker {
+  transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  will-change: auto;
+  contain: layout style paint;
 }
 
-/* Make BasePayButton fit cleanly inside our cards/sheets */
-.basePayWrap {
-  width: 100%;
-}
-.basePayWrap button {
-  width: 100% !important;
-  display: block;
-}
-
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
+/* Utility: the game board + tiles get their own compositor layer */
+.gpu-layer {
+  transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform-style: preserve-3d;
+  transform-style: preserve-3d;
+  will-change: transform;
 }
 
-/* Respect user's reduced-motion setting (older phones, battery saver) */
+.basePayWrap { width: 100%; }
+.basePayWrap button { width: 100% !important; display: block; }
+
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Respect reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -105,4 +118,11 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Prevent tap highlight / callout on game area */
+button, [role="button"], .no-flicker, .gpu-layer {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
