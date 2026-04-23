@@ -527,7 +527,7 @@ export default function AppShell() {
 
   const saveScoreAnytime = useCallback(async (): Promise<boolean> => {
     if (busy) return false;
-    setBusy(true); // ফাংশন শুরুতেই busy করে দিলাম
+    setBusy(true);
     try {
       if (!contract) {
         setToast({ message: "Missing NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS" });
@@ -703,7 +703,7 @@ export default function AppShell() {
   };
 
   return (
-    <div className="min-h-screen w-full px-4 py-5 overflow-hidden">
+    <div className="min-h-[100dvh] w-full px-4 py-5 overflow-hidden overscroll-none">
       <Toast toast={toast} />
 
       <div className="mx-auto w-full max-w-md">
