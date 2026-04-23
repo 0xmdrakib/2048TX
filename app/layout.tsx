@@ -7,31 +7,19 @@ export const metadata: Metadata = {
   icons: [{ rel: "icon", url: "/icon.png" }],
 };
 
-// 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover",
+  themeColor: "#faf8f0",
 };
 
 // ---------------------------------------------------------------------------
 // Mini App head tags (Base + Farcaster)
-//
-// 1) Base Build domain verification expects this on your homepage:
-//    <meta name="base:app_id" content="..." />
-//
-// 2) Base + Farcaster embeds expect your homeUrl to include a serialized embed:
-//    <meta name="fc:miniapp" content="<stringified JSON>" />
-//    (and optionally fc:frame for backwards compatibility)
 // ---------------------------------------------------------------------------
-
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://2048tx.vercel.app").replace(/\/$/, "");
 const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad876c90810df";
 
-// Base App installs/pins Mini Apps based on the `fc:miniapp` tag. For broad
-// compatibility we also publish an `fc:frame` tag (Farcaster Frames embed).
 const MINIAPP_EMBED = {
   version: "1",
   imageUrl: `${APP_URL}/hero.png`,
@@ -65,22 +53,33 @@ const FRAME_EMBED = {
 const MINIAPP_EMBED_CONTENT = JSON.stringify(MINIAPP_EMBED);
 const FRAME_EMBED_CONTENT = JSON.stringify(FRAME_EMBED);
 
+// 
+const themeInitScript = `
+(function() {
+  try {
+    var t = localStorage.getItem('theme') || 'classic';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch(e) {
+    document.documentElement.setAttribute('data-theme', 'classic');
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" data-theme="classic" suppressHydrationWarning>
       <head>
-        {/**/}
-
         {/* Base Build domain verification */}
         <meta name="base:app_id" content={BASE_APP_ID} />
-
         {/* Mini App embeds for discovery/sharing */}
         <meta name="fc:miniapp" content={MINIAPP_EMBED_CONTENT} />
         <meta name="fc:frame" content={FRAME_EMBED_CONTENT} />
+        {/* Anti-flash theme init (runs before React hydration) */}
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>{children}</body>
     </html>
