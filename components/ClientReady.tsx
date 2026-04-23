@@ -1,32 +1,36 @@
 "use client";
 import { useEffect } from "react";
 
-/**
- * Stabilizes layout in in-app browsers (Base, Farcaster, MetaMask, Warpcast, Telegram).
- * - Sets --app-height from visualViewport so 100vh doesn't jump when URL bar hides
- * - Calls sdk.ready({ disableNativeGestures: true }) so native back-swipe doesn't
- *   fight with our board swipes (this was the #1 flicker source in 2048TX).
- */
 export default function ClientReady() {
   useEffect(() => {
+    let rafId = 0;
+
     const setAppHeight = () => {
       const h =
-        (typeof window !== "undefined" && window.visualViewport?.height) ||
-        (typeof window !== "undefined" ? window.innerHeight : 0);
+        window.visualViewport?.height ||
+        window.innerHeight ||
+        document.documentElement.clientHeight;
       if (h > 0) {
         document.documentElement.style.setProperty("--app-height", `${h}px`);
       }
     };
 
+    // Debounce via rAF so rapid resize events don't spam layout
+    const scheduleSetHeight = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(setAppHeight);
+    };
+
     setAppHeight();
-    const raf = requestAnimationFrame(setAppHeight);
 
-    window.addEventListener("resize", setAppHeight);
-    window.addEventListener("orientationchange", setAppHeight);
-    window.visualViewport?.addEventListener("resize", setAppHeight);
-    window.visualViewport?.addEventListener("scroll", setAppHeight);
+    window.addEventListener("resize", scheduleSetHeight, { passive: true });
+    window.addEventListener("orientationchange", scheduleSetHeight, { passive: true });
+    window.visualViewport?.addEventListener("resize", scheduleSetHeight);
+    // NOTE: intentionally NOT listening to visualViewport scroll — that fires
+    // on every swipe inside the WebView and was a major flicker source.
 
-    // Farcaster Mini-App ready — disableNativeGestures is critical for swipe games
+    // Farcaster Mini-App ready — disable native gestures so back-swipe
+    // doesn't trigger while the user is swiping the board
     (async () => {
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
@@ -37,11 +41,10 @@ export default function ClientReady() {
     })();
 
     return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", setAppHeight);
-      window.removeEventListener("orientationchange", setAppHeight);
-      window.visualViewport?.removeEventListener("resize", setAppHeight);
-      window.visualViewport?.removeEventListener("scroll", setAppHeight);
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", scheduleSetHeight);
+      window.removeEventListener("orientationchange", scheduleSetHeight);
+      window.visualViewport?.removeEventListener("resize", scheduleSetHeight);
     };
   }, []);
 
