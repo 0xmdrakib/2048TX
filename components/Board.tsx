@@ -26,7 +26,7 @@ export default function Board({
   return (
     <div
       className={[
-        "relative w-full max-w-md aspect-square rounded-[28px] p-3",
+        "relative w-full max-w-md aspect-square rounded-[28px] p-3 isolate touch-none", // <--- Added 'isolate' and 'touch-none'
         "bg-[var(--board)] border border-[var(--cardBorder)] shadow-soft",
         isLocked ? "opacity-90" : "",
       ].join(" ")}
@@ -41,7 +41,7 @@ export default function Board({
               {tile ? (
                 <motion.div 
                   key={tile.id} 
-                  layout 
+                  layout="position" // <--- Changed to layout="position" for mobile smoothness
                   layoutId={tile.id} 
                   transition={{ type: "spring", stiffness: 350, damping: 30 }}
                   style={{ zIndex: tile.value }}
