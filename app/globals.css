@@ -47,60 +47,59 @@
   --chip: rgba(255, 255, 255, 0.10);
 }
 
-* {
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
-}
-
-html {
-  height: var(--app-height, 100vh);
-  width: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-  /* touch-action: manipulation allows normal taps + scrolls but kills double-tap zoom */
-  touch-action: manipulation;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-
+/* ---------------------------------------------------------------------------
+   DriftWing-style rock-solid layout lock.
+   This is the ONLY reason DriftWing doesn't flicker in any in-app browser.
+   Do NOT change these 2 rules.
+   --------------------------------------------------------------------------- */
+html,
 body {
-  height: var(--app-height, 100vh);
+  position: fixed;
+  overflow: hidden;
   width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
   -webkit-user-select: none;
   user-select: none;
-  /* KEY: GPU layer for the whole app — prevents sub-pixel paint jitter */
-  transform: translate3d(0, 0, 0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  -webkit-transform-style: preserve-3d;
-  transform-style: preserve-3d;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
 }
 
-/* Utility: apply this class to elements that should NOT move during swipes */
-.no-flicker {
-  transform: translate3d(0, 0, 0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  will-change: auto;
-  contain: layout style paint;
+* {
+  box-sizing: border-box;
 }
 
-/* Utility: the game board + tiles get their own compositor layer */
-.gpu-layer {
-  transform: translate3d(0, 0, 0);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  -webkit-transform-style: preserve-3d;
-  transform-style: preserve-3d;
-  will-change: transform;
+/* App root — mirrors DriftWing's .dw wrapper */
+.app-root {
+  position: relative;
+  width: 100%;
+  height: var(--app-height, 100vh);
+  max-width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* Scrollable inner content — this is the ONLY thing allowed to scroll */
+.app-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* Hide scrollbar on all browsers */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.app-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .basePayWrap { width: 100%; }
@@ -108,7 +107,6 @@ body {
 
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
-/* Respect reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -116,13 +114,5 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
-}
-
-/* Prevent tap highlight / callout on game area */
-button, [role="button"], .no-flicker, .gpu-layer {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
 }
