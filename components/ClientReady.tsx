@@ -3,34 +3,21 @@ import { useEffect } from "react";
 
 export default function ClientReady() {
   useEffect(() => {
-    let rafId = 0;
-
+    // Keep a stable "app height" across mobile WebViews where 100vh/100dvh can be wrong.
     const setAppHeight = () => {
-      const h =
-        window.visualViewport?.height ||
-        window.innerHeight ||
-        document.documentElement.clientHeight;
-      if (h > 0) {
-        document.documentElement.style.setProperty("--app-height", `${h}px`);
-      }
-    };
-
-    // Debounce via rAF so rapid resize events don't spam layout
-    const scheduleSetHeight = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(setAppHeight);
+      document.documentElement.style.setProperty(
+        "--app-height",
+        `${window.innerHeight}px`
+      );
     };
 
     setAppHeight();
+    const raf = requestAnimationFrame(setAppHeight);
 
-    window.addEventListener("resize", scheduleSetHeight, { passive: true });
-    window.addEventListener("orientationchange", scheduleSetHeight, { passive: true });
-    window.visualViewport?.addEventListener("resize", scheduleSetHeight);
-    // NOTE: intentionally NOT listening to visualViewport scroll — that fires
-    // on every swipe inside the WebView and was a major flicker source.
+    window.addEventListener("resize", setAppHeight);
+    window.addEventListener("orientationchange", setAppHeight);
 
-    // Farcaster Mini-App ready — disable native gestures so back-swipe
-    // doesn't trigger while the user is swiping the board
+    // For games, disabling native gestures prevents accidental swipe-to-dismiss.
     (async () => {
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
@@ -41,10 +28,9 @@ export default function ClientReady() {
     })();
 
     return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      window.removeEventListener("resize", scheduleSetHeight);
-      window.removeEventListener("orientationchange", scheduleSetHeight);
-      window.visualViewport?.removeEventListener("resize", scheduleSetHeight);
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", setAppHeight);
+      window.removeEventListener("orientationchange", setAppHeight);
     };
   }, []);
 
