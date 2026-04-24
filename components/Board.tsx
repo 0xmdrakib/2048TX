@@ -30,6 +30,8 @@ export default function Board({
         "bg-[var(--board)] border border-[var(--cardBorder)] shadow-soft",
         isLocked ? "opacity-90" : "",
       ].join(" ")}
+      // GPU layer promotion — prevents in-app browser repaints from bleeding into the board
+      style={{ transform: "translateZ(0)", willChange: "transform" }}
     >
       <div className={`grid h-full w-full gap-3 ${colsClass}`}>
         {cells.map(({ posKey, tile }) => (
@@ -38,9 +40,16 @@ export default function Board({
               {tile ? (
                 <motion.div
                   key={tile.id}
-                  layoutId={tile.id}
-                  transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.5 }}
-                  style={{ zIndex: tile.value }}
+                  // *** layoutId REMOVED intentionally ***
+                  // layoutId triggers getBoundingClientRect() on every render,
+                  // causing framer-motion to re-measure the entire board whenever
+                  // the in-app browser chrome shifts the viewport (address bar
+                  // show/hide, keyboard, etc.). This is the root cause of screen
+                  // flickering in Warpcast / Instagram / TikTok in-app browsers.
+                  // Without layoutId, tiles use only scale+opacity animations
+                  // (handled in Tile.tsx) which run purely on the GPU compositor
+                  // thread and never trigger layout reflow.
+                  style={{ zIndex: tile.value, willChange: "transform, opacity" }}
                   className="absolute inset-0"
                 >
                   <Tile value={tile.value} theme={theme} />
