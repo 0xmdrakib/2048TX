@@ -149,16 +149,10 @@ export default function AppShell() {
     return idx >= 0 ? idx + 1 : null;
   }, [address, leaderboard]);
 
-  // Prevent game board swipe from triggering screen scrolling/flickering
-  useEffect(() => {
-    const el = boardRef.current;
-    if (!el) return;
-    const preventScroll = (e: TouchEvent) => {
-      e.preventDefault();
-    };
-    el.addEventListener("touchmove", preventScroll, { passive: false });
-    return () => el.removeEventListener("touchmove", preventScroll);
-  }, []);
+  // NOTE: touchmove prevention is handled inside useSwipe({ passive: false })
+  // Do NOT add a second touchmove listener here — duplicate non-passive listeners
+  // on the same element cause Safari/WKWebView to fire redundant layout events
+  // which contribute to screen flickering in in-app browsers.
 
   // Load saved theme once on mount
   useEffect(() => {
