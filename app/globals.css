@@ -48,9 +48,9 @@
 }
 
 /* ---------------------------------------------------------------------------
-   DriftWing-style rock-solid layout lock.
-   This is the ONLY reason DriftWing doesn't flicker in any in-app browser.
-   Do NOT change these 2 rules.
+   Rock-solid layout lock for all in-app browsers.
+   position:fixed on html+body is the ONLY reliable way to prevent viewport-
+   resize-driven layout shifts in Warpcast / Instagram / TikTok WebViews.
    --------------------------------------------------------------------------- */
 html,
 body {
@@ -75,24 +75,37 @@ body {
   box-sizing: border-box;
 }
 
-/* App root — mirrors DriftWing's .dw wrapper */
+/* App root — size is driven by --app-height which ClientReady.tsx updates
+   using visualViewport for accurate in-app browser dimensions */
 .app-root {
   position: relative;
   width: 100%;
-  height: var(--app-height, 100vh);
+  /* --app-height is set by ClientReady via visualViewport (not window.innerHeight)
+     to get the true visible area in in-app browsers. Falls back to 100dvh, then 100vh. */
+  height: var(--app-height, 100dvh);
   max-width: 100%;
   margin: 0 auto;
   overflow: hidden;
   background: var(--bg);
+  /* Promote to its own GPU composite layer so that viewport-chrome changes
+     in in-app browsers do NOT trigger a repaint of the game board */
+  transform: translateZ(0);
+  will-change: transform;
+  /* Prevent layout changes outside this subtree from forcing reflow inside */
+  contain: layout paint;
 }
 
-/* Scrollable inner content — this is the ONLY thing allowed to scroll */
+/* Scrollable inner content — the ONLY scrollable element in the tree */
 .app-scroll {
   position: absolute;
   inset: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
+  /* NOTE: -webkit-overflow-scrolling: touch is intentionally OMITTED.
+     It was deprecated in Safari 13 and causes rendering glitches in
+     newer in-app WebViews (Warpcast, Instagram, etc.) when combined
+     with position:fixed parent elements. Modern momentum scrolling
+     works natively without this property. */
   overscroll-behavior: contain;
   /* Hide scrollbar on all browsers */
   scrollbar-width: none;
