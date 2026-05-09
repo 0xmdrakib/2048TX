@@ -29,6 +29,8 @@ import { useSwipe } from "@/lib/useSwipe";
 
 type Mode = "classic" | "pay";
 
+const SHOW_REWARDS_BUTTON = process.env.NEXT_PUBLIC_SHOW_REWARDS_BUTTON === "true";
+
 type PendingMove = {
   dir: Direction;
   afterMoveBoard: ReturnType<typeof move>["board"];
@@ -675,9 +677,11 @@ export default function AppShell() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
-                <Trophy className="h-4 w-4" />
-              </Button>
+              {SHOW_REWARDS_BUTTON ? (
+                <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
+                  <Trophy className="h-4 w-4" />
+                </Button>
+              ) : null}
               <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
                 <Palette className="h-4 w-4" />
               </Button>
