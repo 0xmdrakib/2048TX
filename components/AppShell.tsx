@@ -613,7 +613,8 @@ export default function AppShell() {
                   </button>
                 </div>
               ) : (
-                <Button variant="outline" size="sm" onClick={connect} className="px-2.5">
+                <Button variant="outline" size="sm" onClick={connect} className="gap-1.5 px-2.5">
+                  <Wallet className="h-4 w-4" aria-hidden="true" />
                   Connect
                 </Button>
               )}
