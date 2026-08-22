@@ -10,6 +10,10 @@ import type { EIP1193Provider } from "./types";
  */
 
 let cachedBaseAccountProvider: EIP1193Provider | null = null;
+let cachedWalletConnectProvider: (EIP1193Provider & {
+  disconnect?: () => Promise<void>;
+  on?: (event: string, listener: (...args: any[]) => void) => void;
+}) | null = null;
 
 // ---------------------------------------------------------------------------
 // Web injected wallet support (multi-wallet)
@@ -166,6 +170,51 @@ async function getInjectedWalletProvider(): Promise<EIP1193Provider | null> {
   return wallets[0].provider;
 }
 
+export async function connectWalletConnectProvider(): Promise<EIP1193Provider> {
+  if (typeof window === "undefined") throw new Error("WalletConnect is only available in the browser.");
+
+  const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+  if (!projectId) throw new Error("WalletConnect is not configured.");
+
+  if (!cachedWalletConnectProvider) {
+    const { EthereumProvider } = await import("@walletconnect/ethereum-provider");
+    const origin = window.location.origin;
+    const provider = await EthereumProvider.init({
+      projectId,
+      optionalChains: [8453],
+      showQrModal: true,
+      metadata: {
+        name: "2048 TX",
+        description: "Play 2048 with optional onchain activity on Base.",
+        url: origin,
+        icons: [`${origin}/logo.png`],
+      },
+    });
+
+    cachedWalletConnectProvider = provider as unknown as typeof cachedWalletConnectProvider;
+    provider.on("disconnect", () => {
+      cachedWalletConnectProvider = null;
+    });
+  }
+
+  const provider = cachedWalletConnectProvider;
+  if (!provider) throw new Error("WalletConnect could not be initialized.");
+  await (provider as any).connect();
+  return provider;
+}
+
+export async function disconnectWalletConnectProvider() {
+  const provider = cachedWalletConnectProvider;
+  cachedWalletConnectProvider = null;
+  if (provider?.disconnect) {
+    try {
+      await provider.disconnect();
+    } catch {
+      // The local app state should still disconnect even if the session is already closed.
+    }
+  }
+}
+
 // Base App's Farcaster client FID (used for client detection in Base docs)
 // See: https://docs.base.org/mini-apps/troubleshooting/base-app-compatibility
 const BASE_APP_CLIENT_FID = 309857;
@@ -262,6 +311,9 @@ export async function getEvmProvider(): Promise<EIP1193Provider | null> {
   // 1) Base Account first: required for paymasterService + best UX in Base App.
   const baseAccount = await getBaseAccountProvider();
   if (baseAccount) return baseAccount;
+
+  // Reuse an explicitly connected WalletConnect session in normal browsers.
+  if (cachedWalletConnectProvider) return cachedWalletConnectProvider;
 
   // 2) Farcaster provider fallback.
   const farcaster = await getFarcasterProvider();

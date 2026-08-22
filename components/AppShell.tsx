@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid } from "lucide-react";
+import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid, QrCode } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -23,6 +23,8 @@ import {
   listInjectedWallets,
   getPreferredInjectedWalletId,
   setPreferredInjectedWalletId,
+  connectWalletConnectProvider,
+  disconnectWalletConnectProvider,
 } from "@/lib/provider";
 import { sendUsdcTransfer } from "@/lib/usdcTransfer";
 import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib/onchain";
@@ -123,6 +125,7 @@ export default function AppShell() {
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [walletChoices, setWalletChoices] = useState<Array<{ id: string; name: string; icon?: string }> | null>(null);
   const [walletChoicesLoading, setWalletChoicesLoading] = useState(false);
+  const [walletConnectLoading, setWalletConnectLoading] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
@@ -234,7 +237,33 @@ export default function AppShell() {
     setAddress(null);
     setPreferredInjectedWalletId(null);
     setOnchainBest(null);
+    void disconnectWalletConnectProvider();
   }, []);
+
+  const connectWalletConnect = useCallback(async () => {
+    if (walletConnectLoading) return;
+    setWalletConnectLoading(true);
+    setWalletPickerOpen(false);
+    setPreferredInjectedWalletId(null);
+    try {
+      const provider = await connectWalletConnectProvider();
+      setProviderReady(true);
+      await ensureChain(provider, chainId);
+      const acct = (await getAccount(provider)) ?? (await requestAccount(provider));
+      setAddress(acct);
+      if (contract) {
+        const best = await getBestScore({ provider, contract, address: acct });
+        setOnchainBest(best);
+      }
+      setToast({ message: "WalletConnect connected" });
+      setTimeout(() => setToast(null), 1200);
+    } catch (e: any) {
+      setToast({ message: isUserRejected(e) ? "Wallet connection cancelled" : e?.message ?? "WalletConnect failed" });
+      setTimeout(() => setToast(null), 2500);
+    } finally {
+      setWalletConnectLoading(false);
+    }
+  }, [chainId, contract, walletConnectLoading]);
 
   const connect = useCallback(async () => {
     let inMiniApp = false;
@@ -249,11 +278,9 @@ export default function AppShell() {
       try {
         setWalletChoicesLoading(true);
         const wallets = await listInjectedWallets({ forceRefresh: true, timeoutMs: 250 });
-        if (wallets.length > 0) {
-          setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name, icon: w.icon })));
-          setWalletPickerOpen(true);
-          return;
-        }
+        setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name, icon: w.icon })));
+        setWalletPickerOpen(true);
+        return;
       } finally {
         setWalletChoicesLoading(false);
       }
@@ -672,7 +699,7 @@ export default function AppShell() {
         }}
       >
         <div className="text-xs opacity-70">
-          Multiple browser wallets detected. Pick one to use on Base Mainnet.
+          Choose a browser wallet or scan a WalletConnect QR code on Base Mainnet.
         </div>
 
         <div className="mt-3 space-y-2">
@@ -703,9 +730,25 @@ export default function AppShell() {
             </Button>
           ))}
 
-          {walletChoices && walletChoices.length === 0 && !walletChoicesLoading ? (
-            <div className="text-sm">No injected wallets found.</div>
-          ) : null}
+          <div className="flex items-center gap-3 py-1" aria-hidden="true">
+            <div className="h-px flex-1 bg-[var(--cardBorder)]" />
+            <span className="text-[11px] font-medium opacity-50">OR</span>
+            <div className="h-px flex-1 bg-[var(--cardBorder)]" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void connectWalletConnect()}
+            disabled={walletConnectLoading}
+            className="flex h-16 w-full items-center gap-3 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-4 text-left transition hover:bg-[var(--chip)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black text-white">
+              <QrCode className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 text-sm font-semibold">
+              {walletConnectLoading ? "Opening WalletConnect…" : "WalletConnect"}
+            </span>
+          </button>
         </div>
 
         <div className="mt-4 flex items-center justify-between">
