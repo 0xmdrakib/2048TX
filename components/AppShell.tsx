@@ -433,12 +433,25 @@ export default function AppShell() {
       }
       const p = await getEvmProvider();
       if (!p) {
-        setToast({ message: "No wallet provider found." });
-        setTimeout(() => setToast(null), 2600);
+        setToast({ message: "Connect a wallet to save your score." });
+        setTimeout(() => setToast(null), 2200);
+        await connect();
         return false;
       }
       setProviderReady(true);
       const provider = p as NonNullable<typeof p>;
+
+      // An injected provider can exist before the user has connected an account.
+      // Check that first so its currently selected chain does not produce a misleading
+      // "Wrong network" message for a disconnected user.
+      const acct = (address ?? (await getAccount(provider))) as `0x${string}` | null;
+      if (!acct) {
+        setToast({ message: "Connect a wallet to save your score." });
+        setTimeout(() => setToast(null), 2200);
+        await connect();
+        return false;
+      }
+      setAddress(acct);
 
       const chainIdHex = (await provider.request({
         method: "eth_chainId",
@@ -448,12 +461,6 @@ export default function AppShell() {
       if (Number.isFinite(currentChainId) && currentChainId !== chainId) {
         throw new Error("Wrong network. Please switch to Base Mainnet, then try again.");
       }
-
-      const acct = (address ?? (await getAccount(provider))) as `0x${string}` | null;
-      if (!acct) {
-        throw new Error("Please connect your wallet first, then save your score.");
-      }
-      setAddress(acct);
 
       let prevSubmissions: number | null = null;
       try {
@@ -516,7 +523,7 @@ export default function AppShell() {
     } finally {
       setBusy(false);
     }
-  }, [contract, chainId, score, address, busy]);
+  }, [contract, chainId, score, address, busy, connect]);
 
   const saveScoreFromGameOver = useCallback(async () => {
     if (busy) return;
