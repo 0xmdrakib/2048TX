@@ -199,7 +199,10 @@ async function getBaseAccountProvider(): Promise<EIP1193Provider | null> {
 
   try {
     // Lazy import to keep SSR safe.
-    const { createBaseAccountSDK } = await import("@base-org/account");
+    // This code only runs in the browser. Import the explicit browser entry so
+    // Next.js does not resolve the package's Node export during the server
+    // build (which pulls in optional CDP x402 peer dependencies).
+    const { createBaseAccountSDK } = await import("@base-org/account/browser");
 
     const appName =
       process.env.NEXT_PUBLIC_APP_NAME ??
