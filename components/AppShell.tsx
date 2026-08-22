@@ -660,16 +660,14 @@ export default function AppShell() {
         <div className="mx-auto w-full max-w-md">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 shrink items-center gap-2">
-              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-black/10 shadow-sm">
-                <Image
-                  src="/logo.png"
-                  alt="2048 TX logo"
-                  width={60}
-                  height={60}
-                  priority
-                  className="absolute -left-2.5 -top-2.5 h-[60px] w-[60px] max-w-none object-cover"
-                />
-              </div>
+              <Image
+                src="/logo.png"
+                alt="2048 TX logo"
+                width={40}
+                height={40}
+                priority
+                className="h-9 w-9 shrink-0 rounded-xl object-cover sm:h-10 sm:w-10"
+              />
               <div className="whitespace-nowrap text-2xl font-extrabold tracking-tight sm:text-3xl">2048 TX</div>
             </div>
 
@@ -807,7 +805,7 @@ export default function AppShell() {
             <Button
               key={w.id}
               variant="outline"
-              className="w-full justify-between h-12"
+              className="h-12 w-full justify-center"
               onClick={() => {
                 setPreferredInjectedWalletId(w.id);
                 setWalletPickerOpen(false);
@@ -815,16 +813,13 @@ export default function AppShell() {
                 void doConnect();
               }}
             >
-              <span className="flex items-center gap-3">
+              <span className="flex min-w-0 items-center justify-center gap-3">
                 {w.icon ? (
                   <img src={w.icon} alt={w.name} className="w-6 h-6 rounded-md object-contain" />
                 ) : (
                   <Wallet className="w-5 h-5 opacity-60" />
                 )}
                 <span className="truncate">{w.name}</span>
-              </span>
-              <span className="ml-3 shrink-0 font-mono text-[11px] opacity-60">
-                {w.id.startsWith("eip6963:") ? w.id.slice("eip6963:".length) : w.id}
               </span>
             </Button>
           ))}
