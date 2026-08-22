@@ -1,15 +1,10 @@
 import type { EIP1193Provider } from "./types";
 
 /**
- * Provider priority for Mini Apps (Base App + Farcaster clients):
- *
- * 1) Base Account SDK provider (Smart Wallet). This is the only path that can reliably
- *    support paymasterService (gas sponsorship) because paymasters are a Base Account feature.
- * 2) Farcaster Mini App provider (some clients expose an EIP-1193 provider, but it may be EOA-only).
- * 3) window.ethereum fallback.
+ * Browser wallet providers are discovered through EIP-6963, with WalletConnect
+ * used when the user explicitly creates a QR session.
  */
 
-let cachedBaseAccountProvider: EIP1193Provider | null = null;
 type WalletConnectProvider = EIP1193Provider & {
   disconnect?: () => Promise<void>;
   connect: () => Promise<void>;
@@ -244,113 +239,15 @@ export async function disconnectWalletConnectProvider() {
   }
 }
 
-// Base App's Farcaster client FID (used for client detection in Base docs)
-// See: https://docs.base.org/mini-apps/troubleshooting/base-app-compatibility
-const BASE_APP_CLIENT_FID = 309857;
-
-/**
- * Returns true when running inside the Base App (not just any Farcaster client).
- *
- * This is important because Base Account + Paymaster are Base App features.
- * In other Farcaster clients, attempting to use Base Account SDK can break the UX.
- */
-export async function isBaseAppClient(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  try {
-    const { sdk } = await import("@farcaster/miniapp-sdk");
-    const inMiniApp = await sdk.isInMiniApp();
-    if (!inMiniApp) return false;
-    const ctx: any = await sdk.context;
-    return ctx?.client?.clientFid === BASE_APP_CLIENT_FID;
-  } catch {
-    return false;
-  }
-}
-
-async function getBaseAccountProvider(): Promise<EIP1193Provider | null> {
-  if (typeof window === "undefined") return null;
-  if (cachedBaseAccountProvider) return cachedBaseAccountProvider;
-
-  // IMPORTANT: Only try Base Account SDK inside the Base App.
-  // In other Farcaster clients this can cause broken connect flows.
-  if (!(await isBaseAppClient())) return null;
-
-  try {
-    // Lazy import to keep SSR safe.
-    // This code only runs in the browser. Import the explicit browser entry so
-    // Next.js does not resolve the package's Node export during the server
-    // build (which pulls in optional CDP x402 peer dependencies).
-    const { createBaseAccountSDK } = await import("@base-org/account/browser");
-
-    const appName =
-      process.env.NEXT_PUBLIC_APP_NAME ??
-      process.env.NEXT_PUBLIC_SITE_NAME ??
-      "2048TX";
-
-    const appLogoUrl =
-      process.env.NEXT_PUBLIC_APP_LOGO_URL ?? `${window.location.origin}/icon.png`;
-
-    const chainIdDec = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
-
-    const sdk = createBaseAccountSDK({
-      appName,
-      appLogoUrl,
-      appChainIds: [chainIdDec],
-    } as any);
-
-    const provider = sdk.getProvider();
-    if (provider && typeof (provider as any).request === "function") {
-      cachedBaseAccountProvider = provider as unknown as EIP1193Provider;
-      return cachedBaseAccountProvider;
-    }
-  } catch {
-    // Not in Base App / Base Account not available.
-  }
-
-  return null;
-}
-
-async function getFarcasterProvider(): Promise<EIP1193Provider | null> {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const { sdk } = await import("@farcaster/miniapp-sdk");
-
-    // IMPORTANT: only use the Farcaster Mini App wallet provider when actually
-    // running inside a mini app. In a normal browser context, the SDK can exist
-    // but the wallet provider (if returned) may be incomplete (e.g. missing
-    // eth_chainId), which would break web injected wallets.
-    const inMiniApp = await sdk.isInMiniApp();
-    if (!inMiniApp) return null;
-    const raw = await sdk.wallet.getEthereumProvider();
-
-    if (raw && typeof (raw as any).request === "function") {
-      return raw as unknown as EIP1193Provider;
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
-}
-
 export async function getEvmProvider(): Promise<EIP1193Provider | null> {
   if (typeof window === "undefined") return null;
-
-  // 1) Base Account first: required for paymasterService + best UX in Base App.
-  const baseAccount = await getBaseAccountProvider();
-  if (baseAccount) return baseAccount;
 
   // Reuse an explicitly connected WalletConnect session in normal browsers.
   // An initialized provider is not necessarily connected (for example, if the QR
   // modal was cancelled). Only prioritize WalletConnect while it has a live session.
   if (cachedWalletConnectProvider?.session) return cachedWalletConnectProvider;
 
-  // 2) Farcaster provider fallback.
-  const farcaster = await getFarcasterProvider();
-  if (farcaster) return farcaster;
-
-  // 3) Injected provider fallback.
+  // Otherwise use the selected injected browser wallet.
   const injected = await getInjectedWalletProvider();
   if (injected) return injected;
 

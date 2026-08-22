@@ -1,5 +1,5 @@
 {
-  "name": "base-2048-miniapp",
+  "name": "2048tx",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@base-org/account": "^2.5.1",
-    "@base-org/account-ui": "^1.0.1",
-    "@farcaster/miniapp-sdk": "^0.2.1",
     "@walletconnect/ethereum-provider": "^2.23.10",
     "clsx": "^2.1.1",
     "framer-motion": "^11.0.0",

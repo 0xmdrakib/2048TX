@@ -4,10 +4,10 @@ import { useEffect } from "react";
 export default function ClientReady() {
   useEffect(() => {
     // ------------------------------------------------------------------
-    // Stable app height across all mobile WebViews and in-app browsers.
+    // Stable app height across mobile browsers.
     //
-    // Problem: In-app browsers (Warpcast, Instagram, TikTok, etc.) shift
-    // their chrome (address bar, nav bar) in/out of view, changing the
+    // Mobile browsers shift their chrome (address bar, nav bar) in and out
+    // of view, changing the
     // visible viewport height. `window.innerHeight` and `100vh` lag behind
     // or use the WRONG value (e.g. the full height including hidden chrome).
     //
@@ -36,16 +36,6 @@ export default function ClientReady() {
     // Fallback for browsers without visualViewport support
     window.addEventListener("resize", setAppHeight);
     window.addEventListener("orientationchange", setAppHeight);
-
-    // For games, disabling native gestures prevents accidental swipe-to-dismiss.
-    (async () => {
-      try {
-        const { sdk } = await import("@farcaster/miniapp-sdk");
-        await sdk.actions.ready({ disableNativeGestures: true });
-      } catch {
-        // Not in a mini-app; fine.
-      }
-    })();
 
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);

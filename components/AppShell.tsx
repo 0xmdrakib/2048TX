@@ -275,27 +275,15 @@ export default function AppShell() {
   }, [chainId, contract, walletConnectLoading]);
 
   const connect = useCallback(async () => {
-    let inMiniApp = false;
     try {
-      const { sdk } = await import("@farcaster/miniapp-sdk");
-      inMiniApp = await sdk.isInMiniApp();
-    } catch {
-      inMiniApp = false;
+      setWalletChoicesLoading(true);
+      const wallets = await listInjectedWallets({ forceRefresh: true, timeoutMs: 250 });
+      setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name, icon: w.icon })));
+      setWalletPickerOpen(true);
+    } finally {
+      setWalletChoicesLoading(false);
     }
-
-    if (!inMiniApp) {
-      try {
-        setWalletChoicesLoading(true);
-        const wallets = await listInjectedWallets({ forceRefresh: true, timeoutMs: 250 });
-        setWalletChoices(wallets.map((w) => ({ id: w.id, name: w.name, icon: w.icon })));
-        setWalletPickerOpen(true);
-        return;
-      } finally {
-        setWalletChoicesLoading(false);
-      }
-    }
-    await doConnect();
-  }, [doConnect]);
+  }, []);
 
   const checkGameOver = useCallback(
     (b: typeof board) => {
@@ -542,7 +530,7 @@ export default function AppShell() {
 
   const modeLabel = mode === "classic" ? "Classic" : "Pay-per-move";
 
-  const shareCast = async (castText: string) => {
+  const shareScore = async (shareText: string) => {
     const url = (() => {
       try {
         const u = new URL(window.location.href);
@@ -555,22 +543,14 @@ export default function AppShell() {
     })();
 
     try {
-      const { sdk } = await import("@farcaster/miniapp-sdk");
-      await sdk.actions.composeCast({ text: castText, embeds: [url] });
-      return;
-    } catch {
-      // fall back
-    }
-
-    try {
       if (navigator.share) {
-        await navigator.share({ text: `${castText}\n\n${url}` });
+        await navigator.share({ text: `${shareText}\n\n${url}` });
         return;
       }
     } catch {}
 
     try {
-      await navigator.clipboard.writeText(`${castText}\n\n${url}`);
+      await navigator.clipboard.writeText(`${shareText}\n\n${url}`);
       setToast({ message: "Copied share text ✅" });
       setTimeout(() => setToast(null), 1500);
     } catch {
@@ -808,7 +788,7 @@ export default function AppShell() {
             <Button onClick={saveScoreFromGameOver} disabled={busy} className="w-full">
               {busy ? "Saving..." : "Save score onchain"}
             </Button>
-            <Button variant="outline" onClick={() => shareCast(`I scored ${score} in 2048 TX`)} className="w-full">
+            <Button variant="outline" onClick={() => shareScore(`I scored ${score} in 2048 TX`)} className="w-full">
               Share your score
             </Button>
             <Button variant="outline" onClick={reset} className="w-full">

@@ -14,42 +14,6 @@ export const viewport: Viewport = {
   themeColor: "#faf8f0",
 };
 
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://2048tx.vercel.app").replace(/\/$/, "");
-const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad876c90810df";
-
-const MINIAPP_EMBED = {
-  version: "1",
-  imageUrl: `${APP_URL}/hero.png`,
-  button: {
-    title: "Play 2048 TX",
-    action: {
-      type: "launch_miniapp",
-      name: "2048 TX",
-      url: APP_URL,
-      splashImageUrl: `${APP_URL}/splash.png`,
-      splashBackgroundColor: "#0000FF",
-    },
-  },
-} as const;
-
-const FRAME_EMBED = {
-  version: "next",
-  imageUrl: `${APP_URL}/hero.png`,
-  button: {
-    title: "Play 2048 TX",
-    action: {
-      type: "launch_frame",
-      name: "2048 TX",
-      url: APP_URL,
-      splashImageUrl: `${APP_URL}/splash.png`,
-      splashBackgroundColor: "#0000FF",
-    },
-  },
-} as const;
-
-const MINIAPP_EMBED_CONTENT = JSON.stringify(MINIAPP_EMBED);
-const FRAME_EMBED_CONTENT = JSON.stringify(FRAME_EMBED);
-
 // Pre-hydration: apply saved theme before React mounts (kills theme-flash)
 const preHydrationScript = `
 (function(){
@@ -68,9 +32,6 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="classic" suppressHydrationWarning>
       <head>
-        <meta name="base:app_id" content={BASE_APP_ID} />
-        <meta name="fc:miniapp" content={MINIAPP_EMBED_CONTENT} />
-        <meta name="fc:frame" content={FRAME_EMBED_CONTENT} />
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
       <body>{children}</body>

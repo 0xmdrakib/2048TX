@@ -50,7 +50,7 @@
 /* ---------------------------------------------------------------------------
    Rock-solid layout lock for all in-app browsers.
    position:fixed on html+body is the ONLY reliable way to prevent viewport-
-   resize-driven layout shifts in Warpcast / Instagram / TikTok WebViews.
+   resize-driven layout shifts in mobile browsers.
    --------------------------------------------------------------------------- */
 html,
 body {
@@ -103,7 +103,7 @@ body {
   overflow-x: hidden;
   /* NOTE: -webkit-overflow-scrolling: touch is intentionally OMITTED.
      It was deprecated in Safari 13 and causes rendering glitches in
-     newer in-app WebViews (Warpcast, Instagram, etc.) when combined
+     newer mobile WebViews when combined
      with position:fixed parent elements. Modern momentum scrolling
      works natively without this property. */
   overscroll-behavior: contain;

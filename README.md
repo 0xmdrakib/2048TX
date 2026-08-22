@@ -1,6 +1,6 @@
 # 2048 TX
 
-2048 TX is a Base mini app and web game that turns 2048 gameplay into optional onchain activity.
+2048 TX is a web game that turns 2048 gameplay into optional onchain activity on Base.
 
 **Live app:** https://2048tx.rakibhq.xyz
 
@@ -20,10 +20,10 @@ Players can play normally in **Classic Mode**, save scores onchain through the `
 - **Pay-per-move Mode** for confirming a small USDC transfer on every valid move
 - Randomized pay-per-move amounts from **0.000001 USDC** to **0.000005 USDC**
 - Optional onchain score saving through the `Score2048` smart contract
-- Wallet support for Base App, Farcaster mini app wallet provider, and injected browser wallets
+- Wallet support for WalletConnect and injected browser wallets
 - Theme picker with **Classic**, **Neon**, **Pastel**, and **AMOLED** themes
-- Farcaster share flow with browser share and clipboard fallbacks
-- Mobile WebView viewport handling for smoother in-app gameplay
+- Browser share flow with clipboard fallback
+- Mobile viewport handling for smoother gameplay
 - Optional CDP Paymaster proxy support for sponsored score-save transactions
 - Optional Base Builder Code / ERC-8021 calldata attribution
 
@@ -64,7 +64,6 @@ If a paymaster proxy is configured and the connected wallet supports sponsored c
 - TypeScript
 - Tailwind CSS
 - viem
-- Farcaster Mini App SDK
 - Solidity
 
 ---

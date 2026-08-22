@@ -45,7 +45,7 @@ export default function Board({
                   // causing framer-motion to re-measure the entire board whenever
                   // the in-app browser chrome shifts the viewport (address bar
                   // show/hide, keyboard, etc.). This is the root cause of screen
-                  // flickering in Warpcast / Instagram / TikTok in-app browsers.
+                  // flickering in mobile browsers.
                   // Without layoutId, tiles use only scale+opacity animations
                   // (handled in Tile.tsx) which run purely on the GPU compositor
                   // thread and never trigger layout reflow.
