@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid } from "lucide-react";
 
@@ -657,39 +658,66 @@ export default function AppShell() {
 
       <div className="app-scroll px-4 py-5">
         <div className="mx-auto w-full max-w-md">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="text-3xl font-extrabold tracking-tight">2048 TX</div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 min-w-0">
-                <Chip>
-                  <span className="text-[11px] opacity-70">Mode</span>
-                  <span className="font-semibold">{modeLabel}</span>
-                </Chip>
-                {mode === "pay" ? (
-                  <Chip className="w-fit pl-4 pr-5 py-1.5">
-                    <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
-                    <span className="font-semibold text-[12px] whitespace-nowrap relative top-[1px]">
-                      {movesPaid} moves • {formatMicroUsdc(spentMicro)}${"\u00A0"}
-                    </span>
-                  </Chip>
-                ) : null}
-              </div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 shrink items-center gap-2">
+              <Image
+                src="/logo.png"
+                alt="2048 TX logo"
+                width={40}
+                height={40}
+                priority
+                className="h-9 w-9 shrink-0 rounded-xl object-cover sm:h-10 sm:w-10"
+              />
+              <div className="whitespace-nowrap text-2xl font-extrabold tracking-tight sm:text-3xl">2048 TX</div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex shrink-0 items-center gap-1">
+              {address ? (
+                <div className="inline-flex h-9 items-center gap-1.5 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-2 text-xs font-medium shadow-sm">
+                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                  <span>{shorten(address)}</span>
+                  <button
+                    type="button"
+                    onClick={disconnect}
+                    className="-mr-1 ml-0.5 rounded-full p-1 opacity-70 transition-colors hover:bg-[var(--muted)] hover:opacity-100"
+                    aria-label="Disconnect"
+                  >
+                    <Power className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={connect} className="px-2.5">
+                  Connect
+                </Button>
+              )}
               {SHOW_REWARDS_BUTTON ? (
-                <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards">
+                <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards" className="px-2.5">
                   <Trophy className="h-4 w-4" />
                 </Button>
               ) : null}
-              <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme">
+              <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme" className="px-2.5">
                 <Palette className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={cycleGridSize} aria-label="Grid Size">
+              <Button variant="ghost" size="sm" onClick={cycleGridSize} aria-label="Grid Size" className="px-2">
                 <Grid className="h-4 w-4" />
                 <span className="ml-1 text-xs font-semibold">{gridSize}x{gridSize}</span>
               </Button>
             </div>
+          </div>
+
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+            <Chip>
+              <span className="text-[11px] opacity-70">Mode</span>
+              <span className="font-semibold">{modeLabel}</span>
+            </Chip>
+            {mode === "pay" ? (
+              <Chip className="w-fit pl-4 pr-5 py-1.5">
+                <span className="text-[11px] opacity-70 shrink-0 relative top-[1px]">Cost</span>
+                <span className="font-semibold text-[12px] whitespace-nowrap relative top-[1px]">
+                  {movesPaid} moves • {formatMicroUsdc(spentMicro)}${"\u00A0"}
+                </span>
+              </Chip>
+            ) : null}
           </div>
 
           <div className="mt-4 grid grid-cols-[0.8fr_0.8fr_1.4fr] gap-3">
@@ -714,37 +742,14 @@ export default function AppShell() {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between">
-            <div className="flex items-center">
-              {address ? (
-                <div className="inline-flex items-center gap-2 rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-1.5 text-sm font-medium shadow-sm">
-                  <div className="h-2 w-2 rounded-full bg-green-500" />
-                  <span>{shorten(address)}</span>
-                  <button
-                    type="button"
-                    onClick={disconnect}
-                    className="mr-[-4px] ml-1 rounded-full p-1 opacity-70 hover:bg-[var(--muted)] hover:opacity-100 transition-colors"
-                    aria-label="Disconnect"
-                  >
-                    <Power className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <Button variant="outline" size="sm" onClick={connect}>
-                  Connect
-                </Button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={reset} aria-label="New Game">
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void saveScoreAnytime()} disabled={busy}>
-                <Save className="mr-2 h-4 w-4" />
-                {busy ? "Saving…" : "Save score"}
-              </Button>
-            </div>
+          <div className="mt-3 flex items-center justify-end gap-3">
+            <Button variant="outline" size="sm" onClick={reset} aria-label="New Game">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void saveScoreAnytime()} disabled={busy}>
+              <Save className="mr-2 h-4 w-4" />
+              {busy ? "Saving…" : "Save score"}
+            </Button>
           </div>
 
           <div className="mt-4 touch-none" ref={boardRef}>
