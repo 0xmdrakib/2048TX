@@ -2,7 +2,7 @@
 
 2048 TX is a Base mini app and web game that turns 2048 gameplay into optional onchain activity.
 
-**Live app:** https://2048tx.vercel.app
+**Live app:** https://2048tx.rakibhq.xyz
 
 ---
 
@@ -73,54 +73,11 @@ Weekly rollover endpoints keep completed-week snapshots in Redis so each week ca
 - TypeScript
 - Tailwind CSS
 - viem
-- Base Account SDK
 - Farcaster Mini App SDK
 - Upstash Redis
 - Solidity
 
 ---
-
-## Getting started
-
-### 1. Install dependencies
-
-```bash
-npm install
-```
-
-### 2. Configure environment variables
-
-Create a `.env` file in the project root. Then fill the required values from [.env.example](./.env.example).
-
-For local testing, the game UI can run with minimal configuration. Onchain score saving, pay-per-move transfers, leaderboard sync, mini app verification, and paymaster sponsorship require the related environment variables.
-
-### 3. Run the development server
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000` in your browser.
-
-### 4. Build for production
-
-```bash
-npm run build
-npm run start
-```
-
-## Smart contract
-
-The score contract is available in `contracts/Score2048.sol`.
-
-It exposes:
-
-- `best(address)`
-- `lastScore(address)`
-- `submissions(address)`
-- `submitScore(uint32 score)`
-
-It also emits a `ScoreSubmitted` event that is used for leaderboard indexing.
 
 ## License
 
