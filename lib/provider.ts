@@ -10,10 +10,16 @@ import type { EIP1193Provider } from "./types";
  */
 
 let cachedBaseAccountProvider: EIP1193Provider | null = null;
-let cachedWalletConnectProvider: (EIP1193Provider & {
+type WalletConnectProvider = EIP1193Provider & {
   disconnect?: () => Promise<void>;
+  connect: () => Promise<void>;
   on?: (event: string, listener: (...args: any[]) => void) => void;
-}) | null = null;
+  session?: unknown;
+  accounts?: string[];
+  chainId?: number;
+};
+
+let cachedWalletConnectProvider: WalletConnectProvider | null = null;
 
 // ---------------------------------------------------------------------------
 // Web injected wallet support (multi-wallet)
@@ -170,7 +176,10 @@ async function getInjectedWalletProvider(): Promise<EIP1193Provider | null> {
   return wallets[0].provider;
 }
 
-export async function connectWalletConnectProvider(): Promise<EIP1193Provider> {
+export async function connectWalletConnectProvider(): Promise<{
+  provider: EIP1193Provider;
+  account: `0x${string}`;
+}> {
   if (typeof window === "undefined") throw new Error("WalletConnect is only available in the browser.");
 
   const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
@@ -191,7 +200,7 @@ export async function connectWalletConnectProvider(): Promise<EIP1193Provider> {
       },
     });
 
-    cachedWalletConnectProvider = provider as unknown as typeof cachedWalletConnectProvider;
+    cachedWalletConnectProvider = provider as unknown as WalletConnectProvider;
     provider.on("disconnect", () => {
       cachedWalletConnectProvider = null;
     });
@@ -199,8 +208,28 @@ export async function connectWalletConnectProvider(): Promise<EIP1193Provider> {
 
   const provider = cachedWalletConnectProvider;
   if (!provider) throw new Error("WalletConnect could not be initialized.");
-  await (provider as any).connect();
-  return provider;
+
+  // A restored WalletConnect session is already connected. Calling connect() again can
+  // resolve without a new session, and making an RPC request immediately afterwards then
+  // surfaces the SDK's unhelpful "Please call connect() before request()" error.
+  try {
+    if (!provider.session) await provider.connect();
+  } catch (error) {
+    // Do not let a cancelled/failed QR attempt poison the next injected-wallet choice.
+    cachedWalletConnectProvider = null;
+    throw error;
+  }
+
+  const account = provider.accounts?.[0];
+  if (!provider.session || !account) {
+    cachedWalletConnectProvider = null;
+    if (provider.session && provider.disconnect) {
+      await provider.disconnect().catch(() => undefined);
+    }
+    throw new Error("WalletConnect connection was not approved. Please try again.");
+  }
+
+  return { provider, account: account as `0x${string}` };
 }
 
 export async function disconnectWalletConnectProvider() {
@@ -313,7 +342,9 @@ export async function getEvmProvider(): Promise<EIP1193Provider | null> {
   if (baseAccount) return baseAccount;
 
   // Reuse an explicitly connected WalletConnect session in normal browsers.
-  if (cachedWalletConnectProvider) return cachedWalletConnectProvider;
+  // An initialized provider is not necessarily connected (for example, if the QR
+  // modal was cancelled). Only prioritize WalletConnect while it has a live session.
+  if (cachedWalletConnectProvider?.session) return cachedWalletConnectProvider;
 
   // 2) Farcaster provider fallback.
   const farcaster = await getFarcasterProvider();

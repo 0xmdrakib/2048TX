@@ -256,13 +256,12 @@ export default function AppShell() {
     setWalletPickerOpen(false);
     setPreferredInjectedWalletId(null);
     try {
-      const provider = await connectWalletConnectProvider();
+      const { provider, account } = await connectWalletConnectProvider();
       setProviderReady(true);
       await ensureChain(provider, chainId);
-      const acct = (await getAccount(provider)) ?? (await requestAccount(provider));
-      setAddress(acct);
+      setAddress(account);
       if (contract) {
-        const best = await getBestScore({ provider, contract, address: acct });
+        const best = await getBestScore({ provider, contract, address: account });
         setOnchainBest(best);
       }
       setToast({ message: "WalletConnect connected" });
@@ -760,7 +759,7 @@ export default function AppShell() {
           </Button>
         </div>
 
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-4">
           <Button
             variant="ghost"
             size="sm"
@@ -772,20 +771,6 @@ export default function AppShell() {
           >
             Cancel
           </Button>
-
-          {getPreferredInjectedWalletId() ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setPreferredInjectedWalletId(null);
-                setToast({ message: "Wallet selection cleared" });
-                setTimeout(() => setToast(null), 1400);
-              }}
-            >
-              Clear saved wallet
-            </Button>
-          ) : null}
         </div>
       </Sheet>
 
