@@ -660,14 +660,16 @@ export default function AppShell() {
         <div className="mx-auto w-full max-w-md">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 shrink items-center gap-2">
-              <Image
-                src="/logo.png"
-                alt="2048 TX logo"
-                width={40}
-                height={40}
-                priority
-                className="h-9 w-9 shrink-0 rounded-xl object-cover sm:h-10 sm:w-10"
-              />
+              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-black/10 shadow-sm">
+                <Image
+                  src="/logo.png"
+                  alt="2048 TX logo"
+                  width={60}
+                  height={60}
+                  priority
+                  className="absolute -left-2.5 -top-2.5 h-[60px] w-[60px] max-w-none object-cover"
+                />
+              </div>
               <div className="whitespace-nowrap text-2xl font-extrabold tracking-tight sm:text-3xl">2048 TX</div>
             </div>
 
@@ -690,22 +692,10 @@ export default function AppShell() {
                   Connect
                 </Button>
               )}
-              {SHOW_REWARDS_BUTTON ? (
-                <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards" className="px-2.5">
-                  <Trophy className="h-4 w-4" />
-                </Button>
-              ) : null}
-              <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme" className="px-2.5">
-                <Palette className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={cycleGridSize} aria-label="Grid Size" className="px-2">
-                <Grid className="h-4 w-4" />
-                <span className="ml-1 text-xs font-semibold">{gridSize}x{gridSize}</span>
-              </Button>
             </div>
           </div>
 
-          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+          <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
             <Chip>
               <span className="text-[11px] opacity-70">Mode</span>
               <span className="font-semibold">{modeLabel}</span>
@@ -742,14 +732,31 @@ export default function AppShell() {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-end gap-3">
-            <Button variant="outline" size="sm" onClick={reset} aria-label="New Game">
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => void saveScoreAnytime()} disabled={busy}>
-              <Save className="mr-2 h-4 w-4" />
-              {busy ? "Saving…" : "Save score"}
-            </Button>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1">
+              {SHOW_REWARDS_BUTTON ? (
+                <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards" className="px-2.5">
+                  <Trophy className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme" className="px-2.5">
+                <Palette className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={cycleGridSize} aria-label="Grid Size" className="px-2">
+                <Grid className="h-4 w-4" />
+                <span className="ml-1 text-xs font-semibold">{gridSize}x{gridSize}</span>
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={reset} aria-label="New Game">
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void saveScoreAnytime()} disabled={busy}>
+                <Save className="mr-2 h-4 w-4" />
+                {busy ? "Saving…" : "Save score"}
+              </Button>
+            </div>
           </div>
 
           <div className="mt-4 touch-none" ref={boardRef}>
