@@ -14,6 +14,8 @@ export const viewport: Viewport = {
   themeColor: "#faf8f0",
 };
 
+const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "694b33c3c63ad876c90810df";
+
 // Pre-hydration: apply saved theme before React mounts (kills theme-flash)
 const preHydrationScript = `
 (function(){
@@ -32,6 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="classic" suppressHydrationWarning>
       <head>
+        <meta name="base:app_id" content={BASE_APP_ID} />
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
       <body>{children}</body>
