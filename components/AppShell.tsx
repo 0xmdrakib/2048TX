@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Palette, Save, Trophy, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -29,8 +29,6 @@ import { getBestScore, getSubmissions, submitScore, waitForReceipt } from "@/lib
 import { useSwipe } from "@/lib/useSwipe";
 
 type Mode = "classic" | "pay";
-
-const SHOW_REWARDS_BUTTON = process.env.NEXT_PUBLIC_SHOW_REWARDS_BUTTON === "true";
 
 type PendingMove = {
   dir: Direction;
@@ -115,17 +113,6 @@ export default function AppShell() {
   const [gameOver, setGameOver] = useState(false);
   const [gameOverOpen, setGameOverOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
-  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<Array<{ address: string; bestScore: number }> | null>(null);
-  const [leaderboardErr, setLeaderboardErr] = useState<string | null>(null);
-  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
-  const [leaderboardMeta, setLeaderboardMeta] = useState<{
-    weekIndex: number;
-    weekStartsAt: string;
-    weekEndsAt: string;
-    secondsLeft: number;
-  } | null>(null);
-  const [weekTimeLeft, setWeekTimeLeft] = useState("");
   const [pending, setPending] = useState<PendingMove | null>(null);
   const [movesPaid, setMovesPaid] = useState(0);
   const [spentMicro, setSpentMicro] = useState(0);
@@ -140,17 +127,10 @@ export default function AppShell() {
 
   const boardRef = useRef<HTMLDivElement>(null);
   const payLockRef = useRef(false);
-  const rolloverTriggeredForWeekRef = useRef<number | null>(null);
 
   const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS as `0x${string}` | undefined;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "8453");
   const payRecipient = process.env.NEXT_PUBLIC_PAY_RECIPIENT;
-
-  const myLeaderboardRank = useMemo(() => {
-    if (!address || !leaderboard) return null;
-    const idx = leaderboard.findIndex((e) => e.address.toLowerCase() === address.toLowerCase());
-    return idx >= 0 ? idx + 1 : null;
-  }, [address, leaderboard]);
 
   // NOTE: touchmove prevention is handled inside useSwipe({ passive: false })
   // Do NOT add a second touchmove listener here — duplicate non-passive listeners
@@ -198,76 +178,6 @@ export default function AppShell() {
       return nextSize;
     });
   }, []);
-
-  const loadLeaderboard = useCallback(async (doRefresh: boolean = false) => {
-    setLeaderboardLoading(true);
-    setLeaderboardErr(null);
-    try {
-      const url = doRefresh ? "/api/leaderboard?refresh=1" : "/api/leaderboard";
-      const res = await fetch(url, { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load leaderboard");
-      setLeaderboard(json.top100 ?? []);
-      if (json.weekEndsAt) {
-        setLeaderboardMeta({
-          weekIndex: Number(json.weekIndex ?? 0),
-          weekStartsAt: String(json.weekStartsAt ?? ""),
-          weekEndsAt: String(json.weekEndsAt ?? ""),
-          secondsLeft: Number(json.secondsLeft ?? 0),
-        });
-      }
-    } catch (e: any) {
-      setLeaderboard(null);
-      setLeaderboardMeta(null);
-      setLeaderboardErr(String(e?.message ?? e));
-    } finally {
-      setLeaderboardLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (leaderboardOpen) loadLeaderboard(false);
-  }, [leaderboardOpen, loadLeaderboard]);
-
-  useEffect(() => {
-    if (!leaderboardOpen) return;
-    const id = window.setInterval(() => {
-      loadLeaderboard(false);
-    }, 20000);
-    return () => window.clearInterval(id);
-  }, [leaderboardOpen, loadLeaderboard]);
-
-  useEffect(() => {
-    if (!leaderboardOpen) return;
-    if (!leaderboardMeta?.weekEndsAt) return;
-    const tick = () => {
-      const end = new Date(leaderboardMeta.weekEndsAt).getTime();
-      const diff = Math.max(0, end - Date.now());
-      const totalSeconds = Math.floor(diff / 1000);
-      if (totalSeconds === 0 && rolloverTriggeredForWeekRef.current !== leaderboardMeta.weekIndex) {
-        rolloverTriggeredForWeekRef.current = leaderboardMeta.weekIndex;
-        void (async () => {
-          try {
-            await fetch("/api/weekly/rollover", { method: "POST" });
-          } catch {
-            // Non-fatal
-          } finally {
-            loadLeaderboard(false);
-          }
-        })();
-      }
-      const d = Math.floor(totalSeconds / 86400);
-      const h = Math.floor((totalSeconds % 86400) / 3600);
-      const m = Math.floor((totalSeconds % 3600) / 60);
-      const s = totalSeconds % 60;
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const label = d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`;
-      setWeekTimeLeft(label);
-    };
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [leaderboardOpen, leaderboardMeta, loadLeaderboard]);
 
   const refreshOnchainBest = useCallback(async () => {
     if (!contract) return;
@@ -519,32 +429,6 @@ export default function AppShell() {
       const txHash = await submitScore({ provider, contract, from: acct, score });
       setToast({ message: "Saving score onchain…" });
 
-      const serverConfirmPromise = (async () => {
-        const started = Date.now();
-        while (Date.now() - started < 120_000) {
-          try {
-            const res = await fetch("/api/leaderboard", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ txHash }),
-            });
-
-            if (res.status === 202) {
-              await new Promise((r) => setTimeout(r, 1500));
-              continue;
-            }
-
-            const j: any = await res.json().catch(() => null);
-            if (res.ok && j?.ok) return j;
-
-            throw new Error(j?.error ?? j?.message ?? "Server could not ingest leaderboard update");
-          } catch {
-            await new Promise((r) => setTimeout(r, 1500));
-          }
-        }
-        throw new Error("Timed out confirming score save.");
-      })();
-
       const receiptPromise = (async () => {
         const receipt = await waitForReceipt({ provider, txHash, timeoutMs: 120_000 });
         const status = (receipt as any)?.status;
@@ -554,7 +438,7 @@ export default function AppShell() {
         return receipt;
       })();
 
-      const racers: Promise<any>[] = [receiptPromise, serverConfirmPromise];
+      const racers: Promise<any>[] = [receiptPromise];
 
       if (prevSubmissions != null) {
         const submissionsConfirmPromise = (async () => {
@@ -732,11 +616,6 @@ export default function AppShell() {
 
           <div className="mt-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-1">
-              {SHOW_REWARDS_BUTTON ? (
-                <Button variant="ghost" size="sm" onClick={() => setLeaderboardOpen(true)} aria-label="Rewards" className="px-2.5">
-                  <Trophy className="h-4 w-4" />
-                </Button>
-              ) : null}
               <Button variant="ghost" size="sm" onClick={() => setThemeOpen(true)} aria-label="Theme" className="px-2.5">
                 <Palette className="h-4 w-4" />
               </Button>
@@ -864,87 +743,6 @@ export default function AppShell() {
         onSelect={(t) => setTheme(t)}
         onClose={() => setThemeOpen(false)}
       />
-
-      <Sheet
-        open={leaderboardOpen}
-        title="Leaderboard (Top 100)"
-        onClose={() => setLeaderboardOpen(false)}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs opacity-70 flex items-center gap-2 flex-wrap">
-            <span>This week’s best onchain scores</span>
-            {weekTimeLeft ? (
-              <span className="whitespace-nowrap rounded-full border border-[var(--cardBorder)] bg-[var(--card)] px-2 py-0.5 text-[11px]">
-                ⏳ {weekTimeLeft} left
-              </span>
-            ) : null}
-          </div>
-          <Button size="sm" variant="outline" onClick={() => loadLeaderboard(true)} disabled={leaderboardLoading}>
-            {leaderboardLoading ? "Loading…" : "Refresh"}
-          </Button>
-        </div>
-
-        {address ? (
-          <div className="mt-2">
-            <Chip className="border-emerald-400/40 bg-emerald-500/10">
-              <span className="font-semibold">You</span>
-              <span className="font-mono text-[11px]">{shorten(address)}</span>
-              <span className="opacity-60">•</span>
-              <span className="font-semibold">
-                {leaderboardLoading
-                  ? "Finding rank…"
-                  : myLeaderboardRank
-                  ? `Rank #${myLeaderboardRank}`
-                  : leaderboard
-                  ? "Not in Top 100"
-                  : "—"}
-              </span>
-            </Chip>
-          </div>
-        ) : null}
-
-        {leaderboardErr ? (
-          <div className="mt-3 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 text-sm">
-            <div className="font-semibold">Couldn’t load leaderboard</div>
-            <div className="mt-1 text-[11px] opacity-70">{leaderboardErr}</div>
-          </div>
-        ) : null}
-
-        <div className="mt-3 max-h-[60vh] space-y-2 overflow-auto">
-          {(leaderboard ?? []).map((e, i) => {
-            const isMe = !!address && e.address.toLowerCase() === address.toLowerCase();
-            return (
-              <div
-                key={e.address}
-                className={`flex items-center justify-between rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-3 py-2 ${isMe ? "border-emerald-400/40 bg-emerald-500/10" : ""}`}
-                title={e.address}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-6 text-xs font-semibold opacity-70">{i + 1}</div>
-                  <div className="flex items-center gap-2">
-                    <div className="font-mono text-xs">{shorten(e.address)}</div>
-                    {isMe ? (
-                      <span className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold">
-                        You
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="text-sm font-extrabold">{e.bestScore}</div>
-              </div>
-            );
-          })}
-          {!leaderboardLoading && (leaderboard?.length ?? 0) === 0 && !leaderboardErr ? (
-            <div className="rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] p-3 text-sm opacity-70">
-              No entries yet (or sync hasn’t run).
-            </div>
-          ) : null}
-        </div>
-
-        <div className="mt-3 text-[11px] opacity-60">
-          Weekly best score will auto update and reset after week end and take a snapshot, maybe in future Top user will be get reward.
-        </div>
-      </Sheet>
 
       <Sheet
         open={gameOverOpen}

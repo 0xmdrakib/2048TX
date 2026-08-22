@@ -20,7 +20,6 @@ Players can play normally in **Classic Mode**, save scores onchain through the `
 - **Pay-per-move Mode** for confirming a small USDC transfer on every valid move
 - Randomized pay-per-move amounts from **0.000001 USDC** to **0.000005 USDC**
 - Optional onchain score saving through the `Score2048` smart contract
-- Weekly **Top 100** leaderboard backed by onchain score submissions and Upstash Redis
 - Wallet support for Base App, Farcaster mini app wallet provider, and injected browser wallets
 - Theme picker with **Classic**, **Neon**, **Pastel**, and **AMOLED** themes
 - Farcaster share flow with browser share and clipboard fallbacks
@@ -58,14 +57,6 @@ Every score submission changes contract state through the submission counter. Th
 
 If a paymaster proxy is configured and the connected wallet supports sponsored calls, the app attempts to save scores through a sponsored `wallet_sendCalls` flow. If sponsorship is unavailable, it falls back to a normal wallet transaction.
 
-## Leaderboard
-
-The leaderboard shows the current weekly **Top 100** players.
-
-New score transactions are ingested through the leaderboard API after a score-save transaction is confirmed. The server also performs throttled block syncs to catch `ScoreSubmitted` events that may have been submitted outside the frontend.
-
-Weekly rollover endpoints keep completed-week snapshots in Redis so each week can be finalized separately.
-
 ## Tech stack
 
 - Next.js 14
@@ -74,7 +65,6 @@ Weekly rollover endpoints keep completed-week snapshots in Redis so each week ca
 - Tailwind CSS
 - viem
 - Farcaster Mini App SDK
-- Upstash Redis
 - Solidity
 
 ---
