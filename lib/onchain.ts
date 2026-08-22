@@ -19,8 +19,9 @@ function methodUnsupported(e: unknown) {
 }
 
 async function rpcRequest(method: string, params: any[] = []) {
-  const url = process.env.NEXT_PUBLIC_BASE_RPC_URL || "https://mainnet.base.org";
-  const res = await fetch(url, {
+  // Keep the upstream RPC credential server-side. The proxy only permits the
+  // two read methods this client needs and never exposes BASE_RPC_URL.
+  const res = await fetch("/api/rpc", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
@@ -55,7 +56,7 @@ export async function getBestScore(params: {
   let res: string;
   try {
     // Some embedded providers may hang (resolve very slowly) on eth_call.
-    // We apply a short timeout and fall back to a public RPC.
+    // We apply a short timeout and fall back to the private server RPC proxy.
     res = (await requestWithTimeout(
       params.provider.request({
         method: "eth_call",
@@ -65,7 +66,7 @@ export async function getBestScore(params: {
     )) as string;
   } catch (e) {
     // Some embedded providers don't implement the full JSON-RPC surface.
-    // If the method is unsupported OR the call timed out, fall back to RPC.
+    // If the method is unsupported OR the call timed out, use the RPC proxy.
     if (!methodUnsupported(e) && !/timed out/i.test(String((e as any)?.message ?? e))) throw e;
     res = (await rpcRequest("eth_call", [{ to: params.contract, data }, "latest"])) as string;
   }
@@ -220,7 +221,7 @@ export async function waitForReceipt(params: {
     // NOTE:
     // Some embedded wallet providers (notably in-app smart wallets) may *support*
     // eth_getTransactionReceipt but keep returning `null` even after the tx is mined.
-    // In those cases, querying a public RPC is more reliable.
+    // In those cases, querying the server-side RPC proxy is more reliable.
     let receipt: any = null;
 
     // 1) Try via the provider first.
@@ -235,7 +236,7 @@ export async function waitForReceipt(params: {
     }
     if (receipt) return receipt;
 
-    // 2) Always attempt via RPC as a fallback (even if provider returned null).
+    // 2) Always attempt via the private RPC proxy as a fallback.
     try {
       receipt = await rpcRequest("eth_getTransactionReceipt", [params.txHash]);
     } catch {
