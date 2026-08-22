@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid, QrCode } from "lucide-react";
+import { RotateCcw, Palette, Save, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, Power, Grid } from "lucide-react";
 
 import Board from "./Board";
 import ThemePicker from "./ThemePicker";
@@ -105,6 +105,16 @@ function playSound(type: "move" | "merge" | "success" | "gameover") {
 function isUserRejected(e: any) {
   const msg = String(e?.message ?? "").toLowerCase();
   return e?.code === 4001 || msg.includes("user rejected") || msg.includes("rejected") || msg.includes("cancel");
+}
+
+function WalletConnectMark() {
+  return (
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#3B99FC]">
+      <svg viewBox="0 0 300 185" aria-hidden="true" className="h-3.5 w-5 fill-white">
+        <path d="M61.44 36.26c48.91-47.89 128.21-47.89 177.12 0l5.89 5.76a6.12 6.12 0 0 1 0 8.67l-20.14 19.72a3.17 3.17 0 0 1-4.43 0l-8.1-7.93c-34.12-33.41-89.44-33.41-123.56 0l-8.68 8.49a3.17 3.17 0 0 1-4.43 0L54.98 51.25a6.12 6.12 0 0 1 0-8.67l6.46-6.32ZM280.21 77.03l17.92 17.55a6.12 6.12 0 0 1 0 8.67l-80.81 79.12a6.36 6.36 0 0 1-8.86 0l-57.35-56.16a1.59 1.59 0 0 0-2.22 0l-57.35 56.16a6.36 6.36 0 0 1-8.86 0L1.87 103.25a6.12 6.12 0 0 1 0-8.67l17.92-17.55a6.36 6.36 0 0 1 8.86 0l57.35 56.15a1.59 1.59 0 0 0 2.22 0l57.35-56.15a6.36 6.36 0 0 1 8.86 0l57.35 56.15a1.59 1.59 0 0 0 2.22 0l57.35-56.15a6.36 6.36 0 0 1 8.86 0Z" />
+      </svg>
+    </span>
+  );
 }
 
 export default function AppShell() {
@@ -736,19 +746,18 @@ export default function AppShell() {
             <div className="h-px flex-1 bg-[var(--cardBorder)]" />
           </div>
 
-          <button
-            type="button"
+          <Button
+            variant="outline"
             onClick={() => void connectWalletConnect()}
             disabled={walletConnectLoading}
-            className="flex h-16 w-full items-center gap-3 rounded-2xl border border-[var(--cardBorder)] bg-[var(--card)] px-4 text-left transition hover:bg-[var(--chip)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+            aria-busy={walletConnectLoading}
+            className="h-12 w-full justify-center"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black text-white">
-              <QrCode className="h-5 w-5" />
+            <span className="flex min-w-0 items-center justify-center gap-3">
+              <WalletConnectMark />
+              <span className="truncate">WalletConnect</span>
             </span>
-            <span className="min-w-0 text-sm font-semibold">
-              {walletConnectLoading ? "Opening WalletConnect…" : "WalletConnect"}
-            </span>
-          </button>
+          </Button>
         </div>
 
         <div className="mt-4 flex items-center justify-between">
