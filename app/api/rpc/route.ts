@@ -1,3 +1,8 @@
+import {
+  checkRateLimit,
+  rateLimitHeaders,
+} from "../../../lib/server/requestSecurity";
+
 const allowedMethods = new Set(["eth_call", "eth_getTransactionReceipt"]);
 
 const responseHeaders = {
@@ -5,8 +10,8 @@ const responseHeaders = {
   "content-type": "application/json",
 } as const;
 
-function errorResponse(message: string, status: number) {
-  return Response.json({ error: message }, { status, headers: responseHeaders });
+function errorResponse(message: string, status: number, headers: Record<string, string> = {}) {
+  return Response.json({ error: message }, { status, headers: { ...responseHeaders, ...headers } });
 }
 
 export async function POST(req: Request) {
@@ -18,18 +23,27 @@ export async function POST(req: Request) {
     return errorResponse("Forbidden", 403);
   }
 
+  const rateLimit = checkRateLimit({
+    req,
+    bucket: "rpc",
+    limit: 300,
+    windowMs: 60_000,
+  });
+  const limitHeaders = rateLimitHeaders(rateLimit);
+  if (!rateLimit.allowed) return errorResponse("Too many requests", 429, limitHeaders);
+
   const contentLength = Number(req.headers.get("content-length") ?? 0);
-  if (contentLength > 10_000) return errorResponse("Request too large", 413);
+  if (contentLength > 10_000) return errorResponse("Request too large", 413, limitHeaders);
 
   let payload: any;
   try {
     payload = await req.json();
   } catch {
-    return errorResponse("Invalid JSON", 400);
+    return errorResponse("Invalid JSON", 400, limitHeaders);
   }
 
   if (Array.isArray(payload) || !allowedMethods.has(String(payload?.method ?? ""))) {
-    return errorResponse("Method not allowed", 403);
+    return errorResponse("Method not allowed", 403, limitHeaders);
   }
 
   const method = String(payload.method);
@@ -39,14 +53,14 @@ export async function POST(req: Request) {
     const contract = process.env.NEXT_PUBLIC_SCORE_CONTRACT_ADDRESS?.toLowerCase();
     const target = String(params?.[0]?.to ?? "").toLowerCase();
     if (!contract || target !== contract) {
-      return errorResponse("Contract not allowed", 403);
+      return errorResponse("Contract not allowed", 403, limitHeaders);
     }
   }
 
   if (method === "eth_getTransactionReceipt") {
     const txHash = String(params?.[0] ?? "");
     if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
-      return errorResponse("Invalid transaction hash", 400);
+      return errorResponse("Invalid transaction hash", 400, limitHeaders);
     }
   }
 
@@ -64,6 +78,6 @@ export async function POST(req: Request) {
 
   return new Response(await upstreamResponse.text(), {
     status: upstreamResponse.status,
-    headers: responseHeaders,
+    headers: { ...responseHeaders, ...limitHeaders },
   });
 }

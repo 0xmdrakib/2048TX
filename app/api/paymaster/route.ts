@@ -1,3 +1,8 @@
+import {
+  checkRateLimit,
+  rateLimitHeaders,
+} from "../../../lib/server/requestSecurity";
+
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "POST, OPTIONS",
@@ -27,10 +32,20 @@ const ALLOWED_BUNDLER_METHODS = new Set([
   "eth_getUserOperationGasPrice",
 ]);
 
+const EXPENSIVE_METHODS = new Set(["eth_sendUserOperation", "eth_estimateUserOperationGas"]);
+
 function isAllowedMethod(method: string) {
   if (method.startsWith("pm_")) return true; // ERC-7677 paymaster methods
   if (ALLOWED_BUNDLER_METHODS.has(method)) return true;
   return false;
+}
+
+function isExpensiveMethod(method: string) {
+  return method.startsWith("pm_") || EXPENSIVE_METHODS.has(method);
+}
+
+function rateLimitError(message: string, headers: Record<string, string>) {
+  return Response.json({ error: message }, { status: 429, headers: { ...corsHeaders, ...headers } });
 }
 
 export async function POST(req: Request) {
@@ -38,6 +53,15 @@ export async function POST(req: Request) {
   if (!upstream) {
     return new Response("Missing CDP_PAYMASTER_URL", { status: 500 });
   }
+
+  const generalLimit = checkRateLimit({
+    req,
+    bucket: "paymaster-total",
+    limit: 180,
+    windowMs: 60_000,
+  });
+  const generalHeaders = rateLimitHeaders(generalLimit);
+  if (!generalLimit.allowed) return rateLimitError("Too many requests", generalHeaders);
 
   const bodyText = await req.text();
 
@@ -51,10 +75,29 @@ export async function POST(req: Request) {
   // Wallets may send JSON-RPC batch requests.
   const requests = Array.isArray(payload) ? payload : [payload];
 
+  const methods: string[] = [];
   for (const r of requests) {
     const method = String(r?.method ?? "");
     if (!isAllowedMethod(method)) {
       return new Response("Forbidden", { status: 403 });
+    }
+    methods.push(method);
+  }
+
+  const expensiveCount = methods.filter(isExpensiveMethod).length;
+  let responseLimitHeaders = generalHeaders;
+
+  if (expensiveCount > 0) {
+    const expensiveLimit = checkRateLimit({
+      req,
+      bucket: "paymaster-expensive",
+      limit: 30,
+      windowMs: 60_000,
+      cost: expensiveCount,
+    });
+    responseLimitHeaders = rateLimitHeaders(expensiveLimit);
+    if (!expensiveLimit.allowed) {
+      return rateLimitError("Too many sponsored requests", responseLimitHeaders);
     }
   }
 
@@ -69,6 +112,7 @@ export async function POST(req: Request) {
     headers: {
       "content-type": "application/json",
       ...corsHeaders,
+      ...responseLimitHeaders,
     },
   });
 }
