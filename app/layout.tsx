@@ -1,10 +1,40 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://2048tx.rakibhq.xyz";
+const SITE_DESCRIPTION = "2048 with optional pay-per-move and onchain score saves.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "2048 TX",
-  description: "2048 with optional pay-per-move and onchain score saves.",
+  description: SITE_DESCRIPTION,
   icons: [{ rel: "icon", url: "/icon.png" }],
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: "2048 TX",
+    title: "2048 TX",
+    description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "2048 TX — The puzzle that moves onchain.",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "2048 TX",
+    description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: "/og-image.png",
+        alt: "2048 TX — The puzzle that moves onchain.",
+      },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
